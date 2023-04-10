@@ -1,0 +1,40 @@
+image: captnbp/gitlab-ci-image:latest
+
+stages:
+  - test
+  - release
+
+.template:helm:lint:
+  stage: test
+  script:
+    - helm dependency update
+    - helm lint .
+  tags:
+    - server
+
+.template:helm:publish:
+  stage: release
+  script:
+    - helm dependency update
+    - helm plugin install https://github.com/chartmuseum/helm-push
+    - helm plugin install https://github.com/hypnoglow/helm-s3.git
+    - helm package .
+    - export CHART=$(ls ${CHART_NAME}-*.tgz)
+    - helm repo add --username gitlab-ci-token --password ${CI_JOB_TOKEN} gitlab https://${CI_SERVER_HOST}/api/v4/projects/${CI_PROJECT_ID}/packages/helm/${CHART_NAME}
+    - helm repo add charts s3://charts/
+    - helm cm-push ${CHART} gitlab
+    - helm s3 push ${CHART} charts
+  tags:
+    - server
+
+lint:
+  extends:
+    - .template:helm:lint
+  variables:
+    CHART_NAME: opensearch
+
+publish:
+  extends:
+    - .template:helm:publish
+  variables:
+    CHART_NAME: opensearch

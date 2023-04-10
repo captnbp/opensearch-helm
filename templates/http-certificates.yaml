@@ -1,0 +1,426 @@
+{{- if (include "opensearch.http.createTlsSecret" .) }}
+{{- if not .Values.security.tls.http.issuerRef.existingIssuerName }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "common.names.fullname" . }}-http-ca
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: http-ca
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  secretTemplate:
+    labels: {{- include "common.labels.matchLabels" . | nindent 6 }}
+      app.kubernetes.io/component: http-ca
+      {{- if .Values.commonLabels }}
+      {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 6 }}
+      {{- end }}
+    {{- if .Values.commonAnnotations }}
+    annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 6 }}
+    {{- end }}
+  subject:
+    organizationalUnits:
+      - {{ .Values.clusterName }}
+    organizations:
+      - {{ .Values.security.tls.http.subject.organizations }}
+    countries:
+      - {{ .Values.security.tls.http.subject.countries }}
+  isCA: true
+  commonName: {{ include "common.names.fullname" . }}-http-ca
+  secretName: {{ include "common.names.fullname" . }}-http-ca-crt
+  privateKey:
+    algorithm: RSA
+    size: 4096
+  duration: 87600h # 10y
+  issuerRef:
+    name: {{ include "common.names.fullname" . }}-self-signed
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "common.names.fullname" . }}-http
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: issuer
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  ca:
+    secretName: {{ include "common.names.fullname" . }}-http-ca-crt
+---
+{{- end }}
+{{- $releaseNamespace := .Release.Namespace }}
+{{- $clusterDomain := .Values.clusterDomain }}
+{{- $fullname := include "opensearch.cluster_manager.fullname" . }}
+{{- $serviceName := include "opensearch.cluster_manager.fullname" . }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "opensearch.cluster_manager.fullname" . }}-http-crt
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: cluster_manager
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  secretTemplate:
+    labels: {{- include "common.labels.matchLabels" . | nindent 6 }}
+      app.kubernetes.io/component: http
+      {{- if .Values.commonLabels }}
+      {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 6 }}
+      {{- end }}
+    {{- if .Values.commonAnnotations }}
+    annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 6 }}
+    {{- end }}
+  secretName: {{ include "opensearch.cluster_manager.fullname" . }}-http-crt
+  duration: 4320h # 180d
+  renewBefore: 2160h # 90d
+  commonName: "{{ $fullname }}"
+  subject:
+    organizationalUnits:
+      - {{ .Values.clusterName }}
+    organizations:
+      - {{ .Values.security.tls.http.subject.organizations }}
+    countries:
+      - {{ .Values.security.tls.http.subject.countries }}
+  dnsNames:
+    - "{{ printf "*.%s-hl.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+    - "{{ printf "%s-hl.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+    - {{ $fullname }}
+    - "localhost"
+  ipAddresses:
+    - "127.0.0.1"
+    - "::1"
+  usages:
+    - server auth
+  privateKey:
+    algorithm: {{ .Values.security.tls.http.algorithm }}
+    encoding: PKCS8
+    size: {{ .Values.security.tls.http.size }}
+  issuerRef:
+    name: {{ include "opensearch.security.http.issuerName" . }}
+    kind: {{ .Values.security.tls.http.issuerRef.kind }}
+    group: {{ .Values.security.tls.http.issuerRef.group }}
+---
+{{- $fullname := include "opensearch.data.fullname" . }}
+{{- $serviceName := include "opensearch.data.fullname" . }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "opensearch.data.fullname" . }}-http-crt
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: data
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  secretTemplate:
+    labels: {{- include "common.labels.matchLabels" . | nindent 6 }}
+      app.kubernetes.io/component: http
+      {{- if .Values.commonLabels }}
+      {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 6 }}
+      {{- end }}
+    {{- if .Values.commonAnnotations }}
+    annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 6 }}
+    {{- end }}
+  secretName: {{ include "opensearch.data.fullname" . }}-http-crt
+  duration: 4320h # 180d
+  renewBefore: 2160h # 90d
+  commonName: "{{ $fullname }}"
+  subject:
+    organizationalUnits:
+      - {{ .Values.clusterName }}
+    organizations:
+      - {{ .Values.security.tls.http.subject.organizations }}
+    countries:
+      - {{ .Values.security.tls.http.subject.countries }}
+  dnsNames:
+    - "{{ printf "*.%s-hl.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+    - "{{ printf "%s-hl.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+    - {{ $fullname }}
+    - "localhost"
+  ipAddresses:
+    - "127.0.0.1"
+    - "::1"
+  usages:
+    - server auth
+  privateKey:
+    algorithm: {{ .Values.security.tls.http.algorithm }}
+    encoding: PKCS8
+    size: {{ .Values.security.tls.http.size }}
+  issuerRef:
+    name: {{ include "opensearch.security.http.issuerName" . }}
+    kind: {{ .Values.security.tls.http.issuerRef.kind }}
+    group: {{ .Values.security.tls.http.issuerRef.group }}
+---
+{{- $fullname := include "opensearch.coordinating.fullname" . }}
+{{- $serviceName := include "opensearch.coordinating.fullname" . }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "opensearch.coordinating.fullname" . }}-http-crt
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: coordinating
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  secretTemplate:
+    labels: {{- include "common.labels.matchLabels" . | nindent 6 }}
+      app.kubernetes.io/component: http
+      {{- if .Values.commonLabels }}
+      {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 6 }}
+      {{- end }}
+    {{- if .Values.commonAnnotations }}
+    annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 6 }}
+    {{- end }}
+  secretName: {{ include "opensearch.coordinating.fullname" . }}-http-crt
+  duration: 4320h # 180d
+  renewBefore: 2160h # 90d
+  commonName: "{{ $fullname }}"
+  subject:
+    organizationalUnits:
+      - {{ .Values.clusterName }}
+    organizations:
+      - {{ .Values.security.tls.http.subject.organizations }}
+    countries:
+      - {{ .Values.security.tls.http.subject.countries }}
+  dnsNames:
+    - "{{ printf "*.%s.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+    - "{{ printf "%s.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+    - "{{ printf "*.%s-hl.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+    - "{{ printf "%s-hl.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+    - {{ $fullname }}
+    - "localhost"
+  ipAddresses:
+    - "127.0.0.1"
+    - "::1"
+  usages:
+    - server auth
+  privateKey:
+    algorithm: {{ .Values.security.tls.http.algorithm }}
+    encoding: PKCS8
+    size: {{ .Values.security.tls.http.size }}
+  issuerRef:
+    name: {{ include "opensearch.security.http.issuerName" . }}
+    kind: {{ .Values.security.tls.http.issuerRef.kind }}
+    group: {{ .Values.security.tls.http.issuerRef.group }}
+---
+{{- $fullname := include "opensearch.ingest.fullname" . }}
+{{- $serviceName := include "opensearch.ingest.fullname" . }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "opensearch.ingest.fullname" . }}-http-crt
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: ingest
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  secretTemplate:
+    labels: {{- include "common.labels.matchLabels" . | nindent 6 }}
+      app.kubernetes.io/component: http
+      {{- if .Values.commonLabels }}
+      {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 6 }}
+      {{- end }}
+    {{- if .Values.commonAnnotations }}
+    annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 6 }}
+    {{- end }}
+  secretName: {{ include "opensearch.ingest.fullname" . }}-http-crt
+  duration: 4320h # 180d
+  renewBefore: 2160h # 90d
+  commonName: "{{ $fullname }}"
+  subject:
+    organizationalUnits:
+      - {{ .Values.clusterName }}
+    organizations:
+      - {{ .Values.security.tls.http.subject.organizations }}
+    countries:
+      - {{ .Values.security.tls.http.subject.countries }}
+  dnsNames:
+    - "{{ printf "*.%s.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+    - "{{ printf "%s.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+    - "{{ printf "*.%s-hl.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+    - "{{ printf "%s-hl.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+    - {{ $fullname }}
+    - "localhost"
+  ipAddresses:
+    - "127.0.0.1"
+    - "::1"
+  usages:
+    - server auth
+  privateKey:
+    algorithm: {{ .Values.security.tls.http.algorithm }}
+    encoding: PKCS8
+    size: {{ .Values.security.tls.http.size }}
+  issuerRef:
+    name: {{ include "opensearch.security.http.issuerName" . }}
+    kind: {{ .Values.security.tls.http.issuerRef.kind }}
+    group: {{ .Values.security.tls.http.issuerRef.group }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "common.names.fullname" . }}-admin-http-crt
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: admin
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  secretTemplate:
+    labels: {{- include "common.labels.matchLabels" . | nindent 6 }}
+      app.kubernetes.io/component: http
+      {{- if .Values.commonLabels }}
+      {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 6 }}
+      {{- end }}
+    {{- if .Values.commonAnnotations }}
+    annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 6 }}
+    {{- end }}
+  secretName: {{ include "common.names.fullname" . }}-admin-http-crt
+  duration: 24h
+  renewBefore: 1h
+  commonName: "admin"
+  subject:
+    organizationalUnits:
+      - {{ .Values.clusterName }}Users
+    organizations:
+      - {{ .Values.security.tls.http.subject.organizations }}
+    countries:
+      - {{ .Values.security.tls.http.subject.countries }}
+  usages:
+    - client auth
+  privateKey:
+    algorithm: {{ .Values.security.tls.http.algorithm }}
+    encoding: PKCS8
+    size: {{ .Values.security.tls.http.size }}
+  issuerRef:
+    name: {{ include "opensearch.security.http.issuerName" . }}
+    kind: {{ .Values.security.tls.http.issuerRef.kind }}
+    group: {{ .Values.security.tls.http.issuerRef.group }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "common.names.fullname" . }}-dashboards-http-crt
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: dashboards
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  secretTemplate:
+    labels: {{- include "common.labels.matchLabels" . | nindent 6 }}
+      app.kubernetes.io/component: http
+      {{- if .Values.commonLabels }}
+      {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 6 }}
+      {{- end }}
+    {{- if .Values.commonAnnotations }}
+    annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 6 }}
+    {{- end }}
+  secretName: {{ include "common.names.fullname" . }}-dashboards-http-crt
+  duration: 4320h # 180d
+  renewBefore: 2160h # 90d
+  commonName: "dashboards"
+  subject:
+    organizationalUnits:
+      - {{ .Values.clusterName }}Users
+    organizations:
+      - {{ .Values.security.tls.http.subject.organizations }}
+    countries:
+      - {{ .Values.security.tls.http.subject.countries }}
+  usages:
+    - client auth
+  privateKey:
+    algorithm: {{ .Values.security.tls.http.algorithm }}
+    encoding: PKCS8
+    size: {{ .Values.security.tls.http.size }}
+  issuerRef:
+    name: {{ include "opensearch.security.http.issuerName" . }}
+    kind: {{ .Values.security.tls.http.issuerRef.kind }}
+    group: {{ .Values.security.tls.http.issuerRef.group }}
+
+---
+{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "common.names.fullname" . }}-monitoring-http-crt
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    app.kubernetes.io/component: metrics
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  secretTemplate:
+    labels: {{- include "common.labels.matchLabels" . | nindent 6 }}
+      app.kubernetes.io/component: metrics
+      {{- if .Values.commonLabels }}
+      {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 6 }}
+      {{- end }}
+    {{- if .Values.commonAnnotations }}
+    annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 6 }}
+    {{- end }}
+  secretName: {{ include "common.names.fullname" . }}-monitoring-http-crt
+  duration: 4320h # 180d
+  renewBefore: 2160h # 90d
+  commonName: "monitoring"
+  subject:
+    organizationalUnits:
+      - {{ .Values.clusterName }}Users
+    organizations:
+      - {{ .Values.security.tls.http.subject.organizations }}
+    countries:
+      - {{ .Values.security.tls.http.subject.countries }}
+  usages:
+    - client auth
+  privateKey:
+    algorithm: {{ .Values.security.tls.http.algorithm }}
+    encoding: PKCS1
+    size: {{ .Values.security.tls.http.size }}
+  issuerRef:
+    name: {{ include "opensearch.security.http.issuerName" . }}
+    kind: {{ .Values.security.tls.http.issuerRef.kind }}
+    group: {{ .Values.security.tls.http.issuerRef.group }}
+{{- end }}
+{{- end }}

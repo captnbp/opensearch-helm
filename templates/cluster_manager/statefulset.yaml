@@ -1,0 +1,424 @@
+apiVersion: {{ template "common.capabilities.statefulset.apiVersion" . }}
+kind: StatefulSet
+metadata:
+  name: {{ include "opensearch.cluster_manager.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+    app.kubernetes.io/component: cluster_manager
+    ## Istio Labels: https://istio.io/docs/ops/deployment/requirements/
+    app: cluster_manager
+spec:
+  updateStrategy:
+    type: {{ .Values.cluster_manager.updateStrategy.type }}
+    {{- if (eq "OnDelete" .Values.cluster_manager.updateStrategy.type) }}
+    rollingUpdate: null
+    {{- end }}
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cluster_manager
+  podManagementPolicy: Parallel
+  {{- if not .Values.cluster_manager.autoscaling.enabled }}
+  replicas: {{ .Values.cluster_manager.replicaCount }}
+  {{- end }}
+  serviceName: {{ include "opensearch.cluster_manager.fullname" . }}-hl
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" . | nindent 8 }}
+        app.kubernetes.io/component: cluster_manager
+        ## Istio Labels: https://istio.io/docs/ops/deployment/requirements/
+        app: cluster_manager
+        {{- if .Values.cluster_manager.podLabels }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.cluster_manager.podLabels "context" $) | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- if and (include "opensearch.transport.createTlsSecret" .) (not .Values.security.tls.transport.cluster_manager.existingSecret) }}
+        checksum/tls-transport-certificates: {{ include (print $.Template.BasePath "/transport-certificates.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if and (include "opensearch.http.createTlsSecret" .) (not .Values.security.tls.http.cluster_manager.existingSecret) }}
+        checksum/tls-http-certificates: {{ include (print $.Template.BasePath "/http-certificates.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if .Values.security.tls.truststore.extraCACerts }}
+        checksum/tls-configmap-ca-certs: {{ include (print $.Template.BasePath "/configmap-ca-certs.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if .Values.extraSecretsKeystore.secrets }}
+        checksum/tls-extraSecretsKeystore: {{ include (print $.Template.BasePath "/keystore-secrets.yaml") . | sha256sum }}
+        {{- end }}
+        checksum/tls-configmap-lib-scripts: {{ include (print $.Template.BasePath "/configmap-lib-scripts.yaml") . | sha256sum }}
+        checksum/tls-configmap-os: {{ include (print $.Template.BasePath "/configmap-os.yaml") . | sha256sum }}
+        checksum/tls-configmap-scripts: {{ include (print $.Template.BasePath "/configmap-scripts.yaml") . | sha256sum }}
+        {{- if .Values.cluster_manager.podAnnotations }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.cluster_manager.podAnnotations "context" $) | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.allocationAwareness.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: {{ .Values.allocationAwareness.topologyKey }}
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: cluster_manager
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: cluster_manager
+      {{- end }}
+      {{- include "opensearch.imagePullSecrets" . | nindent 6 }}
+      {{- if .Values.cluster_manager.hostAliases }}
+      hostAliases: {{- include "common.tplvalues.render" (dict "value" .Values.cluster_manager.hostAliases "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.cluster_manager.schedulerName }}
+      schedulerName: {{ .Values.cluster_manager.schedulerName }}
+      {{- end }}
+      {{- if .Values.cluster_manager.priorityClassName }}
+      priorityClassName: {{ .Values.cluster_manager.priorityClassName | quote }}
+      {{- end }}
+      {{- if .Values.cluster_manager.affinity }}
+      affinity: {{- include "common.tplvalues.render" (dict "value" .Values.cluster_manager.affinity "context" $) | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAffinity: {{- include "common.affinities.pods" (dict "type" .Values.cluster_manager.podAffinityPreset "component" "cluster_manager" "context" $) | nindent 10 }}
+        podAntiAffinity: {{- include "common.affinities.pods" (dict "type" .Values.cluster_manager.podAntiAffinityPreset "component" "cluster_manager" "context" $) | nindent 10 }}
+        nodeAffinity: {{- include "common.affinities.nodes" (dict "type" .Values.cluster_manager.nodeAffinityPreset.type "key" .Values.cluster_manager.nodeAffinityPreset.key "values" .Values.cluster_manager.nodeAffinityPreset.values) | nindent 10 }}
+      {{- end }}
+      {{- if .Values.cluster_manager.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" (dict "value" .Values.cluster_manager.nodeSelector "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.cluster_manager.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.cluster_manager.tolerations "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.cluster_manager.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- include "common.tplvalues.render" (dict "value" .Values.cluster_manager.topologySpreadConstraints "context" $) | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ template "opensearch.cluster_manager.serviceAccountName" . }}
+      {{- if or .Values.cluster_manager.podSecurityContext.enabled .Values.cluster_manager.securityContext.enabled }}
+      securityContext:
+        {{- if .Values.cluster_manager.podSecurityContext.enabled }}
+        {{- omit .Values.cluster_manager.podSecurityContext "enabled" | toYaml | nindent 8 }}
+        {{- else }}
+        fsGroup: {{ .Values.cluster_manager.securityContext.fsGroup }}
+        {{- end }}
+      {{- end }}
+      {{- if or .Values.cluster_manager.initContainers .Values.sysctlImage.enabled (and .Values.volumePermissions.enabled .Values.cluster_manager.persistence.enabled) }}
+      initContainers:
+        {{- if .Values.sysctlImage.enabled }}
+        ## Image that performs the sysctl operation to modify Kernel settings (needed sometimes to avoid boot errors)
+        - name: sysctl
+          image: {{ include "opensearch.sysctl.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              {{- include "opensearch.sysctlIfLess" (dict "key" "vm.max_map_count" "value" "262144") | nindent 14 }}
+              {{- include "opensearch.sysctlIfLess" (dict "key" "fs.file-max" "value" "65536") | nindent 14 }}
+          securityContext:
+            privileged: true
+          {{- if .Values.sysctlImage.resources }}
+          resources: {{- toYaml .Values.sysctlImage.resources | nindent 12 }}
+          {{- end }}
+        {{- end }}
+        {{- if and .Values.volumePermissions.enabled .Values.cluster_manager.persistence.enabled }}
+        - name: volume-permissions
+          image: {{ include "opensearch.volumePermissions.image" . }}
+          imagePullPolicy: {{ .Values.volumePermissions.image.pullPolicy | quote }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              chown -R {{ .Values.cluster_manager.securityContext.runAsUser }}:{{ .Values.cluster_manager.securityContext.fsGroup }} /usr/share/opensearch/data
+          securityContext:
+            runAsUser: 0
+          {{- if .Values.volumePermissions.resources }}
+          resources: {{- toYaml .Values.volumePermissions.resources | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: "/usr/share/opensearch/data"
+        {{- end }}
+        {{- if .Values.cluster_manager.initContainers }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.cluster_manager.initContainers "context" $) | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: opensearch
+          image: {{ include "opensearch.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          {{- if or .Values.cluster_manager.containerSecurityContext.enabled .Values.cluster_manager.securityContext.enabled }}
+          securityContext:
+            {{- if .Values.cluster_manager.containerSecurityContext.enabled }}
+            {{- omit .Values.cluster_manager.containerSecurityContext "enabled" | toYaml | nindent 12 }}
+            {{ else }}
+            runAsUser: {{ .Values.cluster_manager.securityContext.runAsUser }}
+            {{- end }}
+          {{- end }}
+          {{- if .Values.diagnosticMode.enabled }}
+          command: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.command "context" $) | nindent 12 }}
+          args: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.args "context" $) | nindent 12 }}
+          {{- else }}
+          command:
+            - "/opt/opensearch/scripts/opensearch-docker-entrypoint.sh"
+          {{- end }}
+          env:
+            - name: IMAGE_DEBUG
+              value: {{ ternary "true" "false" (or .Values.image.debug .Values.diagnosticMode.enabled) | quote }}
+            - name: WORKER_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: node.name
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- if .Values.plugins }}
+            - name: OPENSEARCH_PLUGINS
+              value: {{ .Values.plugins | quote }}
+            {{- end }}
+            {{- if .Values.allocationAwareness.enabled }}
+            - name: OPENSEARCH_ALLOCATION_AWARENESS
+              value: "true"
+            - name: OPENSEARCH_TOPOLOGY_KEY
+              value: {{ .Values.allocationAwareness.topologyKey | quote }}
+            {{- end }}
+            - name: cluster.initial_cluster_manager_nodes
+              {{- $opensearchClusterManagerFullname := include "opensearch.cluster_manager.fullname" . }}
+              {{- $replicas := int (ternary .Values.cluster_manager.autoscaling.minReplicas .Values.cluster_manager.replicaCount .Values.cluster_manager.autoscaling.enabled) }}
+              value: {{ range $i, $e := until $replicas }}{{ $opensearchClusterManagerFullname }}-{{ $e }},{{ end }}
+            - name: discovery.seed_hosts
+              {{- $releaseNamespace := .Release.Namespace }}
+              {{- $clusterDomain := .Values.clusterDomain }}
+              {{- $opensearchClusterManagerFullname := include "opensearch.cluster_manager.fullname" . }}
+              {{- $replicas := int (ternary .Values.cluster_manager.autoscaling.minReplicas .Values.cluster_manager.replicaCount .Values.cluster_manager.autoscaling.enabled) }}
+              value: {{ range $i, $e := until $replicas }}{{ $opensearchClusterManagerFullname }}-{{ $e }}.{{ $opensearchClusterManagerFullname }}-hl.{{ $releaseNamespace }}.svc.{{ $clusterDomain }},{{ end }}
+            - name: cluster.name
+              value: "{{ .Values.clusterName }}"
+            - name: OPENSEARCH_JAVA_OPTS
+              value: "{{ .Values.opensearchJavaOpts }}"
+            {{- if .Values.security.tls.truststore.extraCACerts }}
+            - name: OPENSEARCH_CACERTS_PATH
+              value: "/tmp/cacerts"
+            {{- end }}
+            - name: node.roles
+              value: "cluster_manager"
+            - name: DISABLE_INSTALL_DEMO_CONFIG
+              value: "true"
+            - name: READINESS_PROBE_PROTOCOL
+              value: https
+            - name: MONITORING_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "common.names.fullname" . }}
+                  key: monitoring-password
+            {{- if .Values.s3Snapshots.enabled }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "opensearch.s3Snapshots.secretName" . }}
+                  key: {{ .Values.s3Snapshots.config.s3.client.default.existingSecretAccessKey | quote }}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "opensearch.s3Snapshots.secretName" . }}
+                  key: {{ .Values.s3Snapshots.config.s3.client.default.existingSecretSecretKey | quote }}
+            {{- end }}
+            {{- if .Values.extraEnvVars }}
+            {{- include "common.tplvalues.render" ( dict "value" .Values.extraEnvVars "context" $ ) | nindent 12 }}
+            {{- end }}
+          {{- if or .Values.extraEnvVarsConfigMap .Values.extraEnvVarsSecret }}
+          envFrom:
+            {{- if .Values.extraEnvVarsConfigMap }}
+            - configMapRef:
+                name: {{ include "common.tplvalues.render" ( dict "value" .Values.extraEnvVarsConfigMap "context" $ ) }}
+            {{- end }}
+            {{- if .Values.extraEnvVarsSecret }}
+            - secretRef:
+                name: {{ include "common.tplvalues.render" ( dict "value" .Values.extraEnvVarsSecret "context" $ ) }}
+            {{- end }}
+          {{- end }}
+          ports:
+            - name: rest-api
+              containerPort: {{ .Values.containerPorts.restAPI }}
+            - name: transport
+              containerPort: {{ .Values.containerPorts.transport }}
+          {{- if not .Values.diagnosticMode.enabled }}
+          {{- if .Values.cluster_manager.startupProbe.enabled }}
+          startupProbe:
+            initialDelaySeconds: {{ .Values.cluster_manager.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.cluster_manager.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.cluster_manager.startupProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.cluster_manager.startupProbe.successThreshold }}
+            failureThreshold: {{ .Values.cluster_manager.startupProbe.failureThreshold }}
+            exec:
+              command:
+                - /opt/opensearch/scripts/readiness-probe-script.sh
+          {{- else if .Values.cluster_manager.customStartupProbe }}
+          startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.cluster_manager.customStartupProbe "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if .Values.cluster_manager.livenessProbe.enabled }}
+          livenessProbe:
+            initialDelaySeconds: {{ .Values.cluster_manager.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.cluster_manager.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.cluster_manager.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.cluster_manager.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.cluster_manager.livenessProbe.failureThreshold }}
+            exec:
+              command:
+                - /opt/opensearch/scripts/readiness-probe-script.sh
+          {{- else if .Values.cluster_manager.customLivenessProbe }}
+          livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.cluster_manager.customLivenessProbe "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if .Values.cluster_manager.readinessProbe.enabled }}
+          readinessProbe:
+            initialDelaySeconds: {{ .Values.cluster_manager.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.cluster_manager.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.cluster_manager.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.cluster_manager.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.cluster_manager.readinessProbe.failureThreshold }}
+            exec:
+              command:
+                - /opt/opensearch/scripts/readiness-probe-script.sh
+          {{- else if .Values.cluster_manager.customReadinessProbe }}
+          readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.cluster_manager.customReadinessProbe "context" $) | nindent 12 }}
+          {{- end }}
+          {{- end }}
+          {{- if .Values.cluster_manager.resources }}
+          resources: {{- toYaml .Values.cluster_manager.resources | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - mountPath: /usr/share/opensearch/config/opensearch.yml
+              name: config
+              subPath: opensearch.yml
+            {{- if .Values.securityadmin.securityConfig.config }}
+            - mountPath: /usr/share/opensearch/config/opensearch-security/config.yml
+              name: securityconfig
+              subPath: config.yml
+            {{- end }}
+            {{- if .Values.extraConfig }}
+            - mountPath: /usr/share/opensearch/config/my_opensearch.yml
+              name: config
+              subPath: my_opensearch.yml
+            {{- end }}
+            - name: data
+              mountPath: /usr/share/opensearch/data
+            - name: opensearch-http-certificates
+              mountPath: /usr/share/opensearch/config/http-tls.key
+              subPath: tls.key
+              readOnly: true
+            - name: opensearch-http-certificates
+              mountPath: /usr/share/opensearch/config/http-tls.crt
+              subPath: tls.crt
+              readOnly: true
+            - name: opensearch-http-certificates
+              mountPath: /usr/share/opensearch/config/http-ca.crt
+              subPath: ca.crt
+              readOnly: true
+            - name: opensearch-transport-certificates
+              mountPath: /usr/share/opensearch/config/transport-tls.key
+              subPath: tls.key
+              readOnly: true
+            - name: opensearch-transport-certificates
+              mountPath: /usr/share/opensearch/config/transport-tls.crt
+              subPath: tls.crt
+              readOnly: true
+            - name: opensearch-transport-certificates
+              mountPath: /usr/share/opensearch/config/transport-ca.crt
+              subPath: ca.crt
+              readOnly: true
+            {{- if .Values.security.tls.truststore.extraCACerts }}
+            - name: ca-certificates
+              mountPath: /tmp/cacerts
+              readOnly: true
+            {{- end }}
+            - name: scripts
+              mountPath: /opt/opensearch/scripts/
+              readOnly: true
+            - name: lib-scripts
+              mountPath: /opt/scripts/
+              readOnly: true
+            {{- if or .Values.extraSecretsKeystore.existingSecret .Values.extraSecretsKeystore.secrets }}
+            - name: keystore-secrets
+              mountPath: /tmp/keystore-secrets
+              readOnly: true
+            {{- end }}
+            {{- if .Values.extraVolumeMounts }}
+            {{- toYaml .Values.extraVolumeMounts | nindent 12 }}
+            {{- end }}
+        {{- if .Values.cluster_manager.sidecars }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.cluster_manager.sidecars "context" $) | nindent 8 }}
+        {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "common.names.fullname" . }}
+            defaultMode: 420
+        {{- if .Values.securityadmin.securityConfig.config }}
+        - name: securityconfig
+          configMap:
+            name: {{ include "common.names.fullname" . }}-securityconfig
+            defaultMode: 420
+        {{- end }}
+        - name: opensearch-transport-certificates
+          secret:
+            secretName: {{ include "opensearch.cluster_manager.transport.tlsSecretName" . }}
+            defaultMode: 420
+        - name: opensearch-http-certificates
+          secret:
+            secretName: {{ include "opensearch.cluster_manager.http.tlsSecretName" . }}
+            defaultMode: 420
+        {{- if .Values.security.tls.truststore.extraCACerts }}
+        - name: ca-certificates
+          configMap:
+            name: {{ include "common.names.fullname" . }}-ca-certs
+            defaultMode: 420
+        {{- end }}
+        - name: lib-scripts
+          configMap:
+            name: {{ include "common.names.fullname" . }}-lib-scripts
+            defaultMode: 493
+        - name: scripts
+          configMap:
+            name: {{ include "common.names.fullname" . }}-scripts
+            defaultMode: 493
+        {{- if or .Values.extraSecretsKeystore.existingSecret .Values.extraSecretsKeystore.secrets }}
+        - name: keystore-secrets
+          secret:
+            secretName: {{ include "opensearch.extraSecretsKeystore.secretName" . }}
+            defaultMode: 420
+        {{- end }}
+        {{- if .Values.extraVolumes }}
+        {{- toYaml .Values.extraVolumes | nindent 8 }}
+        {{- end }}
+{{- if not .Values.cluster_manager.persistence.enabled }}
+        - name: "data"
+          emptyDir: {}
+{{- else if .Values.cluster_manager.persistence.existingClaim }}
+        - name: "data"
+          persistentVolumeClaim:
+            claimName: {{ .Values.cluster_manager.persistence.existingClaim }}
+{{- else }}
+  volumeClaimTemplates:
+    - metadata:
+        name: "data"
+        {{- if .Values.cluster_manager.persistence.annotations }}
+        annotations: {{- toYaml .Values.cluster_manager.persistence.annotations | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes: {{- toYaml .Values.cluster_manager.persistence.accessModes | nindent 10 }}
+        {{ $storage := dict "global" .Values.global "local" .Values.cluster_manager }}
+        {{ include "opensearch.storageClass" $storage  }}
+        resources:
+          requests:
+            storage: {{ .Values.cluster_manager.persistence.size | quote }}
+        {{- if .Values.cluster_manager.persistence.selector }}
+        selector: {{- include "common.tplvalues.render" (dict "value" .Values.cluster_manager.persistence.selector "context" $) | nindent 10 }}
+        {{- else if .Values.cluster_manager.persistence.existingVolume }}
+        selector:
+          matchLabels:
+            volume: {{ .Values.cluster_manager.persistence.existingVolume }}
+        {{- end }}
+{{- end }}

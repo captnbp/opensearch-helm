@@ -1,0 +1,278 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.names.fullname" . }}-lib-scripts
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+data:
+  liblog.sh: |-
+    #!/bin/bash
+    #
+    # Library for logging functions
+
+    # Constants
+    RESET='\033[0m'
+    RED='\033[38;5;1m'
+    GREEN='\033[38;5;2m'
+    YELLOW='\033[38;5;3m'
+    MAGENTA='\033[38;5;5m'
+    CYAN='\033[38;5;6m'
+
+    # Functions
+
+    ########################
+    # Print to STDERR
+    # Arguments:
+    #   Message to print
+    # Returns:
+    #   None
+    #########################
+    stderr_print() {
+        # 'is_boolean_yes' is defined in libvalidations.sh, but depends on this file so we cannot source it
+        local bool="${IMAGE_QUIET:-false}"
+        # comparison is performed without regard to the case of alphabetic characters
+        shopt -s nocasematch
+        if ! [[ "$bool" = 1 || "$bool" =~ ^(yes|true)$ ]]; then
+            printf "%b\\n" "${*}" >&2
+        fi
+    }
+
+    ########################
+    # Log message
+    # Arguments:
+    #   Message to log
+    # Returns:
+    #   None
+    #########################
+    log() {
+        stderr_print "${CYAN}${MODULE:-} ${MAGENTA}$(date "+%T.%2N ")${RESET}${*}"
+    }
+    ########################
+    # Log an 'info' message
+    # Arguments:
+    #   Message to log
+    # Returns:
+    #   None
+    #########################
+    info() {
+        log "${GREEN}INFO ${RESET} ==> ${*}"
+    }
+    ########################
+    # Log message
+    # Arguments:
+    #   Message to log
+    # Returns:
+    #   None
+    #########################
+    warn() {
+        log "${YELLOW}WARN ${RESET} ==> ${*}"
+    }
+    ########################
+    # Log an 'error' message
+    # Arguments:
+    #   Message to log
+    # Returns:
+    #   None
+    #########################
+    error() {
+        log "${RED}ERROR${RESET} ==> ${*}"
+    }
+    ########################
+    # Log a 'debug' message
+    # Globals:
+    #   IMAGE_DEBUG
+    # Arguments:
+    #   None
+    # Returns:
+    #   None
+    #########################
+    debug() {
+        # 'is_boolean_yes' is defined in libvalidations.sh, but depends on this file so we cannot source it
+        local bool="${IMAGE_DEBUG:-false}"
+        # comparison is performed without regard to the case of alphabetic characters
+        shopt -s nocasematch
+        if [[ "$bool" = 1 || "$bool" =~ ^(yes|true)$ ]]; then
+            log "${MAGENTA}DEBUG${RESET} ==> ${*}"
+        fi
+    }
+
+    ########################
+    # Indent a string
+    # Arguments:
+    #   $1 - string
+    #   $2 - number of indentation characters (default: 4)
+    #   $3 - indentation character (default: " ")
+    # Returns:
+    #   None
+    #########################
+    indent() {
+        local string="${1:-}"
+        local num="${2:?missing num}"
+        local char="${3:-" "}"
+        # Build the indentation unit string
+        local indent_unit=""
+        for ((i = 0; i < num; i++)); do
+            indent_unit="${indent_unit}${char}"
+        done
+        # shellcheck disable=SC2001
+        # Complex regex, see https://github.com/koalaman/shellcheck/wiki/SC2001#exceptions
+        echo "$string" | sed "s/^/${indent_unit}/"
+    }
+  libopensearch.sh: |-
+    #!/bin/bash
+    #
+    # Library for network functions
+
+    # shellcheck disable=SC1091
+
+    # Load Generic Libraries
+    . /opt/scripts/liblog.sh
+
+    # Functions
+
+    ########################
+    # Install Opensearch plugins
+    # Globals:
+    #   OPENSEARCH_*
+    # Arguments:
+    #   None
+    # Returns:
+    #   None
+    #########################
+    installPlugins() {
+        read -r -a plugins_list <<<"$(tr ',;' ' ' <<<"$OPENSEARCH_PLUGINS")"
+        local mandatory_plugins=""
+
+        # Helper function for extracting the plugin name from a tarball name
+        # Examples:
+        #   get_plugin_name plugin -> plugin
+        #   get_plugin_name file://plugin.zip -> plugin
+        #   get_plugin_name http://plugin-0.1.2.zip -> plugin
+        get_plugin_name() {
+            local plugin="${1:?missing plugin}"
+            # Remove any paths, and strip both the .zip extension and the version
+            basename "$plugin" | sed -E -e 's/.zip$//' -e 's/-[0-9]+\.[0-9]+(\.[0-9]+){0,}$//'
+        }
+
+        # Collect plugins that should be installed offline
+        read -r -a mounted_plugins <<<"$(find "$OPENSEARCH_MOUNTED_PLUGINS_DIR" -type f -name "*.zip" -print0 | xargs -0)"
+        if [[ "${#mounted_plugins[@]}" -gt 0 ]]; then
+            for plugin in "${mounted_plugins[@]}"; do
+                plugins_list+=("file://${plugin}")
+            done
+        fi
+
+        # Skip if there isn't any plugin to install
+        [[ -z "${plugins_list[*]:-}" ]] && return
+
+        # Install plugins
+        debug "Installing plugins: ${plugins_list[*]}"
+        for plugin in "${plugins_list[@]}"; do
+            plugin_name="$(get_plugin_name "$plugin")"
+            [[ -n "$mandatory_plugins" ]] && mandatory_plugins="${mandatory_plugins},${plugin_name}" || mandatory_plugins="$plugin_name"
+
+            # Check if the plugin was already installed
+            if [[ -d "${OPENSEARCH_PLUGINS_DIR}/${plugin_name}" ]]; then
+                debug "Plugin already installed: ${plugin}"
+                continue
+            fi
+
+            debug "Installing plugin: ${plugin}"
+            if [[ "${IMAGE_DEBUG:-false}" = true ]]; then
+                opensearch-plugin install -b -v "$plugin"
+            else
+                opensearch-plugin install -b -v "$plugin" >/dev/null 2>&1
+            fi
+        done
+    }
+
+    ########################
+    # Set S3 credentials in Opensearch keystore
+    # Globals:
+    #   OPENSEARCH_*
+    # Arguments:
+    #   None
+    # Returns:
+    #   None
+    #########################
+    setS3Credentials() {
+        #/usr/share/opensearch/bin/opensearch-plugin install --batch repository-s3
+
+        if [[ -f "/usr/share/opensearch/config/opensearch.keystore" ]]; then
+            debug "Keystore already exists"
+        else
+            info "Creating Opensearch keystore"
+            /usr/share/opensearch/bin/opensearch-keystore create
+        fi
+        info "Adding S3 credentials on Opensearch keystore for s3.client.default"
+        echo $AWS_ACCESS_KEY_ID | /usr/share/opensearch/bin/opensearch-keystore add --stdin s3.client.default.access_key
+        echo $AWS_SECRET_ACCESS_KEY | /usr/share/opensearch/bin/opensearch-keystore add --stdin s3.client.default.secret_key
+    }
+
+    ########################
+    # Set extra secrets K/V in Opensearch keystore
+    # Globals:
+    #   OPENSEARCH_*
+    # Arguments:
+    #   None
+    # Returns:
+    #   None
+    #########################
+    setExtraSecrets() {
+        if [[ -f "/usr/share/opensearch/config/opensearch.keystore" ]]; then
+            debug "Keystore already exists"
+        else
+            info "Creating Opensearch keystore"
+            /usr/share/opensearch/bin/opensearch-keystore create
+        fi
+
+        if [[ ! -z "/tmp/keystore-secrets" ]]; then
+            for file in $(ls /tmp/keystore-secrets); do
+                IFS=$'\n'
+                for line in $(cat /tmp/keystore-secrets/${file})
+                do
+                    if [[ "${line}" =~ ^[[:graph:]]*:[[:blank:]][[:graph:]]*$ ]]; then
+                        IFS=': ' read -r KEY VALUE <<< ${line}
+                        info "Adding secret value in Opensearch keystore for ${KEY}"
+                        echo -n ${VALUE} | /usr/share/opensearch/bin/opensearch-keystore add -f --stdin ${KEY}
+                        if [[ $? -eq 0 ]]; then
+                            info "${KEY} added to Opensearch keystore"
+                        else
+                            error "Failed to add ${KEY} to Opensearch keystore"
+                        fi
+                    else
+                        error "Failed to add ${line} to Opensearch keystore: wrong format, should be 'key: value'"
+                    fi
+                done
+            done
+        fi
+    }
+
+    ########################
+    # Add CA certs in Opensearch truststore
+    # Globals:
+    #   OPENSEARCH_*
+    # Arguments:
+    #   None
+    # Returns:
+    #   None
+    #########################
+    addCACerts() {
+        if [[ ! -z "${OPENSEARCH_CACERTS_PATH}" ]]; then
+            for cert in $(ls ${OPENSEARCH_CACERTS_PATH}); do
+                /usr/share/opensearch/jdk/bin/keytool -import -trustcacerts -file ${OPENSEARCH_CACERTS_PATH}/${cert} -alias $(basename "${cert}" | sed 's/\(.*\)\..*/\1/') -keystore /usr/share/opensearch/jdk/lib/security/cacerts -storepass changeit -noprompt
+                if [[ $? -eq 0 ]]; then
+                    info "CA cert ${OPENSEARCH_CACERTS_PATH}/${cert} added to Java truststore"
+                else
+                    error "Failed to add CA cert ${OPENSEARCH_CACERTS_PATH}/${cert} to Java truststore"
+                fi
+            done
+        fi
+    }
+    

@@ -1,0 +1,268 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.names.fullname" . }}-scripts
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+data:
+  generate-internal-users.sh: |-
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    cp {{ .Values.securityadmin.securityConfig.path }}/internal_users.yml /tmp/internal_users.yml
+
+    TEMP_HASH=$(/usr/share/opensearch/plugins/opensearch-security/tools/hash.sh -p "${OPENSEARCH_PASSWORD}")
+    OPENSEARCH_PASSWORD_HASH=$(echo $TEMP_HASH | awk '{print $(NF)}')
+    sed -i "s!OPENSEARCH_PASSWORD_HASH!$OPENSEARCH_PASSWORD_HASH!" /tmp/internal_users.yml
+
+    TEMP_HASH=$(/usr/share/opensearch/plugins/opensearch-security/tools/hash.sh -p "${DASHBOARD_PASSWORD}")
+    DASHBOARDS_PASSWORD_HASH=$(echo $TEMP_HASH | awk '{print $(NF)}')
+    sed -i "s!DASHBOARDS_PASSWORD_HASH!$DASHBOARDS_PASSWORD_HASH!" /tmp/internal_users.yml
+
+    TEMP_HASH=$(/usr/share/opensearch/plugins/opensearch-security/tools/hash.sh -p "${MONITORING_PASSWORD}")
+    MONITORING_PASSWORD_HASH=$(echo $TEMP_HASH | awk '{print $(NF)}')
+    sed -i "s!MONITORING_PASSWORD_HASH!$MONITORING_PASSWORD_HASH!" /tmp/internal_users.yml
+
+    /usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh -f /tmp/internal_users.yml \
+      -icl \
+      -nhnv \
+      -cacert /usr/share/opensearch/config/ca.crt \
+      -cert /usr/share/opensearch/config/tls.crt \
+      -key /usr/share/opensearch/config/tls.key \
+      -h {{ printf "%s-hl" (include "opensearch.cluster_manager.fullname" .) | trunc 63 | trimSuffix "-" }}
+
+  readiness-probe-script.sh: |-
+    #!/usr/bin/env bash
+
+    # fail should be called as a last resort to help the user to understand why the probe failed
+    function fail {
+    timestamp=$(date --iso-8601=seconds)
+    echo "{\"timestamp\": \"${timestamp}\", \"message\": \"readiness probe failed\", "$1"}" | tee /proc/1/fd/2 2> /dev/null
+    exit 1
+    }
+
+    READINESS_PROBE_TIMEOUT=${READINESS_PROBE_TIMEOUT:=3}
+
+    BASIC_AUTH="-u monitoring:${MONITORING_PASSWORD}"
+
+    # Check if we are using IPv6
+    if [[ $POD_IP =~ .*:.* ]]; then
+    LOOPBACK="[::1]"
+    else
+    LOOPBACK=127.0.0.1
+    fi
+
+    # request Opensearch on /
+    # we are turning globbing off to allow for unescaped [] in case of IPv6
+    ENDPOINT="${READINESS_PROBE_PROTOCOL:-https}://${LOOPBACK}:9200/"
+    status=$(curl -o /dev/null -w "%{http_code}" --max-time ${READINESS_PROBE_TIMEOUT} -XGET -g -s -k ${BASIC_AUTH} $ENDPOINT)
+    curl_rc=$?
+
+    if [[ ${curl_rc} -ne 0 ]]; then
+    fail "\"curl_rc\": \"${curl_rc}\""
+    fi
+
+    # ready if status code 200
+    if [[ ${status} == "200" ]] || [[ ${status} == "401" ]]; then
+    exit 0
+    else
+    fail " \"status\": \"${status}\" "
+    fi
+  pre-stop-hook-script.sh: |-
+    #!/usr/bin/env bash
+
+    set -euo pipefail
+
+    # This script will wait for up to $PRE_STOP_ADDITIONAL_WAIT_SECONDS before allowing termination of the Pod
+    # This slows down the process shutdown and allows to make changes to the pool gracefully, without blackholing traffic when DNS
+    # still contains the IP that is already inactive.
+    # As this runs in parallel to grace period after which process is SIGKILLed,
+    # it should be set to allow enough time for the process to gracefully terminate.
+    # It allows kube-proxy to refresh its rules and remove the terminating Pod IP.
+    # Kube-proxy refresh period defaults to every 30 seconds, but the operation itself can take much longer if
+    # using iptables with a lot of services, in which case the default 30sec might not be enough.
+    # Also gives some additional bonus time to in-flight requests to terminate, and new requests to still
+    # target the Pod IP before Elasticsearch stops.
+    PRE_STOP_ADDITIONAL_WAIT_SECONDS=${PRE_STOP_ADDITIONAL_WAIT_SECONDS:=50}
+
+    sleep $PRE_STOP_ADDITIONAL_WAIT_SECONDS
+  opensearch-docker-entrypoint.sh: |-
+    #!/bin/bash
+
+    # Copyright OpenSearch Contributors
+    # SPDX-License-Identifier: Apache-2.0
+
+    # This script specify the entrypoint startup actions for opensearch
+    # It will start both opensearch and performance analyzer plugin cli
+    # If either process failed, the entire docker container will be removed
+    # in favor of a newly started container
+
+    # Export OpenSearch Home
+    export OPENSEARCH_HOME=/usr/share/opensearch
+    export OPENSEARCH_PATH_CONF=$OPENSEARCH_HOME/config
+
+    # The virtual file /proc/self/cgroup should list the current cgroup
+    # membership. For each hierarchy, you can follow the cgroup path from
+    # this file to the cgroup filesystem (usually /sys/fs/cgroup/) and
+    # introspect the statistics for the cgroup for the given
+    # hierarchy. Alas, Docker breaks this by mounting the container
+    # statistics at the root while leaving the cgroup paths as the actual
+    # paths. Therefore, OpenSearch provides a mechanism to override
+    # reading the cgroup path from /proc/self/cgroup and instead uses the
+    # cgroup path defined the JVM system property
+    # opensearch.cgroups.hierarchy.override. Therefore, we set this value here so
+    # that cgroup statistics are available for the container this process
+    # will run in.
+    export OPENSEARCH_JAVA_OPTS="-Dopensearch.cgroups.hierarchy.override=/ $OPENSEARCH_JAVA_OPTS"
+
+    # Holds the PID of opensearch and performance analyzer processes.
+    declare OPENSEARCH_PID
+    declare PA_PID
+
+    export OPENSEARCH_MOUNTED_PLUGINS_DIR="/usr/share/opensearch/plugins"
+    export OPENSEARCH_PLUGINS_DIR="/usr/share/opensearch/plugins"
+
+    # Load Generic Libraries
+    . /opt/scripts/liblog.sh
+    . /opt/scripts/libopensearch.sh
+
+    # Trap function that is used to terminate opensearch and performance analyzer
+    # when a relevant signal is caught.
+    function terminateProcesses {
+        if kill -0 $OPENSEARCH_PID >& /dev/null; then
+            info "Killing opensearch process $OPENSEARCH_PID"
+            kill -TERM $OPENSEARCH_PID
+            wait $OPENSEARCH_PID
+        fi
+        if kill -0 $PA_PID >& /dev/null; then
+            info "Killing performance analyzer process $PA_PID"
+            kill -TERM $PA_PID
+            wait $PA_PID
+        fi
+    }
+
+    # Start up the opensearch and performance analyzer agent processes.
+    # When either of them halts, this script exits, or we receive a SIGTERM or SIGINT signal then we want to kill both these processes.
+    function runOpensearch {
+
+        # Files created by OpenSearch should always be group writable too
+        umask 0002
+
+        if [[ "$(id -u)" == "0" ]]; then
+            error "OpenSearch cannot run as root. Please start your container as another user."
+            exit 1
+        fi
+
+        # Parse Docker env vars to customize OpenSearch
+        #
+        # e.g. Setting the env var cluster.name=testcluster
+        # will cause OpenSearch to be invoked with -Ecluster.name=testcluster
+        opensearch_opts=()
+        while IFS='=' read -r envvar_key envvar_value
+        do
+            # OpenSearch settings need to have at least two dot separated lowercase
+            # words, e.g. `cluster.name`, except for `processors` which we handle
+            # specially
+            if [[ "$envvar_key" =~ ^[a-z0-9_]+\.[a-z0-9_]+ || "$envvar_key" == "processors" ]]; then
+                if [[ ! -z $envvar_value ]]; then
+                opensearch_opt="-E${envvar_key}=${envvar_value}"
+                opensearch_opts+=("${opensearch_opt}")
+                fi
+            fi
+        done < <(env)
+
+        if [[ "${OPENSEARCH_ALLOCATION_AWARENESS:-false}" = true ]]; then
+            if [[ ! -z ${OPENSEARCH_TOPOLOGY_KEY} ]]; then
+                debug "Getting ${OPENSEARCH_TOPOLOGY_KEY} label value for node ${WORKER_NODE_NAME} to set Allocation Awareness using kube-api"
+                ZONE=$(curl -s https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}/api/v1/nodes/${WORKER_NODE_NAME} \
+                    --header "Authorization: Bearer $(cat /run/secrets/kubernetes.io/serviceaccount/token)" \
+                    --cacert /run/secrets/kubernetes.io/serviceaccount/ca.crt | grep "\"${OPENSEARCH_TOPOLOGY_KEY}" | cut -d'"' -f 4)
+                if [[ ! -z ${ZONE} ]]; then
+                    info "Setting node.attr.zone=${ZONE} for Allocation Awareness"
+                    opensearch_opt="-Enode.attr.zone=${ZONE}"
+                    opensearch_opts+=("${opensearch_opt}")
+                else
+                    error "Failed to gather ${OPENSEARCH_TOPOLOGY_KEY} label value for node ${WORKER_NODE_NAME} to set Allocation Awareness"
+                    exit 1
+                fi
+            fi
+        fi
+
+        debug "Parsed options : ${opensearch_opts[@]}"
+        
+        addCACerts
+        installPlugins
+        
+        {{- if .Values.s3Snapshots.enabled }}
+        setS3Credentials
+        {{- end }}
+
+        {{- if or .Values.extraSecretsKeystore.existingSecret .Values.extraSecretsKeystore.secrets }}
+        setExtraSecrets
+        {{- end }}
+
+        # Enable job control so we receive SIGCHLD when a child process terminates
+        set -m
+
+        # Make sure we terminate the child processes in the event of us received TERM (e.g. "docker container stop"), INT (e.g. ctrl-C), EXIT (this script terminates for an unexpected reason), or CHLD (one of the processes terminated unexpectedly)
+        trap terminateProcesses TERM INT EXIT CHLD
+
+        # Start opensearch
+        "$@" "${opensearch_opts[@]}" &
+        OPENSEARCH_PID=$!
+
+        # Start performance analyzer agent
+        $OPENSEARCH_HOME/bin/opensearch-performance-analyzer/performance-analyzer-agent-cli > $OPENSEARCH_HOME/logs/performance-analyzer.log 2>&1 &
+        PA_PID=$!
+
+        # Wait for the child processes to terminate
+        wait $OPENSEARCH_PID
+        local opensearch_exit_code=$?
+        info "OpenSearch exited with code ${opensearch_exit_code}"
+
+        wait $PA_PID
+        info "Performance analyzer exited with code $?"
+
+        # This script should exit with the same code as the opensearch command, but
+        # it would be a breaking change. Next line should be uncommented for the
+        # next major release.
+        # exit ${opensearch_exit_code}
+    }
+
+    # Prepend "opensearch" command if no argument was provided or if the first
+    # argument looks like a flag (i.e. starts with a dash).
+    if [ $# -eq 0 ] || [ "${1:0:1}" = '-' ]; then
+        set -- opensearch "$@"
+    fi
+
+    if [ "$1" = "opensearch" ]; then
+        # Install Opensearch plugins
+        installPlugins
+        # If the first argument is opensearch, then run the setup script.
+        runOpensearch "$@"
+    else
+        # Otherwise, just exec the command.
+        exec "$@"
+    fi
+
+  set-s3-repository.sh: |-
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    {{- $releaseNamespace := .Release.Namespace }}
+    {{- $clusterDomain := .Values.clusterDomain }}
+    {{- $fullname := include "opensearch.cluster_manager.fullname" . }}
+    {{- $serviceName := include "opensearch.cluster_manager.fullname" . }}
+
+    curl -X PUT -H 'Content-Type: application/json' \
+      --cacert /usr/share/opensearch/config/ca.crt \
+      --cert /usr/share/opensearch/config/tls.crt \
+      --key /usr/share/opensearch/config/tls.key \
+      -d '{ "type": "s3", "settings": { "client": "default", "bucket": "{{ .Values.s3Snapshots.config.s3.client.default.bucket }}", "base_path": "{{ .Values.s3Snapshots.config.s3.client.default.base_path }}" }}' \
+      "https://{{ printf "%s-hl.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}:{{ .Values.containerPorts.restAPI }}/_snapshot/default"

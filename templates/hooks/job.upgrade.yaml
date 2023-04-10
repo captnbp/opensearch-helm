@@ -1,0 +1,109 @@
+{{- if .Values.s3Snapshots.enabled }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ template "common.names.fullname" . }}-s3-snapshots
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+    app.kubernetes.io/component: s3-snapshots
+    ## Istio Labels: https://istio.io/docs/ops/deployment/requirements/
+    app: s3-snapshots
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "2"
+    {{- if .Values.commonAnnotations }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+    {{- end }}
+spec:
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" . | nindent 8 }}
+        {{- if .Values.commonLabels }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 8 }}
+        {{- end }}
+        app.kubernetes.io/component: s3-snapshots
+        ## Istio Labels: https://istio.io/docs/ops/deployment/requirements/
+        app: s3-snapshots
+      {{- if $.Values.podAnnotations }}
+      annotations: {{- toYaml $.Values.podAnnotations | nindent 8 }}
+        {{- if .Values.commonAnnotations }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 8 }}
+        {{- end }}
+      {{- end }}
+    spec:
+      restartPolicy: Never
+      {{- if $.Values.securityadmin.priorityClassName }}
+      priorityClassName: {{ $.Values.securityadmin.priorityClassName | quote }}
+      {{- end }}
+      {{- if .Values.securityadmin.schedulerName }}
+      schedulerName: {{ .Values.securityadmin.schedulerName }}
+      {{- end }}
+      {{- if $.Values.securityadmin.affinity }}
+      affinity: {{- include "common.tplvalues.render" (dict "value" $.Values.securityadmin.affinity "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if $.Values.securityadmin.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" (dict "value" $.Values.securityadmin.nodeSelector "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if $.Values.securityadmin.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" (dict "value" $.Values.securityadmin.tolerations "context" $) | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ template "common.names.fullname" . }}-securityadmin
+      {{- if or .Values.securityadmin.podSecurityContext.enabled .Values.securityadmin.securityContext.enabled }}
+      securityContext:
+        {{- if .Values.securityadmin.podSecurityContext.enabled }}
+        {{- omit .Values.securityadmin.podSecurityContext "enabled" | toYaml | nindent 8 }}
+        {{- else }}
+        fsGroup: {{ .Values.securityadmin.securityContext.fsGroup }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: s3-repository
+          image: {{ include "opensearch.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          {{- if .Values.diagnosticMode.enabled }}
+          command: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.command "context" $) | nindent 12 }}
+          args: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.args "context" $) | nindent 12 }}
+          {{- else }}
+          command: [ "/tmp/set-s3-repository.sh" ]
+          {{- end }}
+          resources: {{- toYaml $.Values.securityadmin.resources | nindent 12 }}
+          volumeMounts:
+            - name: scripts
+              mountPath: /tmp/set-s3-repository.sh
+              subPath: set-s3-repository.sh
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/tls.key
+              subPath: tls.key
+              readOnly: true
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/tls.crt
+              subPath: tls.crt
+              readOnly: true
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/ca.crt
+              subPath: ca.crt
+              readOnly: true
+          {{- if $.Values.securityadmin.extraVolumeMounts }}
+          {{- toYaml $.Values.securityadmin.extraVolumeMounts | nindent 12 }}
+          {{- end }}
+
+        {{- if .Values.securityadmin.sidecars }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.securityadmin.sidecars "context" $) | nindent 8 }}
+        {{- end }}
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ include "common.names.fullname" . }}-scripts
+            defaultMode: 493
+        - name: opensearch-admin-certificates
+          secret:
+            secretName: {{ include "common.names.fullname" . }}-admin-http-crt
+            defaultMode: 420
+        {{- if $.Values.securityadmin.extraVolumes }}
+        {{- toYaml $.Values.securityadmin.extraVolumes | nindent 8 }}
+        {{- end }}
+
+{{- end }}

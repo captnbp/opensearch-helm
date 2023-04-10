@@ -1,0 +1,262 @@
+{{- if .Values.securityadmin.enabled }}
+{{- $releaseNamespace := .Release.Namespace }}
+{{- $clusterDomain := .Values.clusterDomain }}
+{{- $fullname := include "opensearch.cluster_manager.fullname" . }}
+{{- $serviceName := include "opensearch.cluster_manager.fullname" . }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ template "common.names.fullname" . }}-securityadmin
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+    app.kubernetes.io/component: securityadmin
+    ## Istio Labels: https://istio.io/docs/ops/deployment/requirements/
+    app: securityadmin
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "1"
+    {{- if .Values.commonAnnotations }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+    {{- end }}
+spec:
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" . | nindent 8 }}
+        {{- if .Values.commonLabels }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 8 }}
+        {{- end }}
+        app.kubernetes.io/component: securityadmin
+        ## Istio Labels: https://istio.io/docs/ops/deployment/requirements/
+        app: securityadmin
+      {{- if $.Values.podAnnotations }}
+      annotations: {{- toYaml $.Values.podAnnotations | nindent 8 }}
+        {{- if .Values.commonAnnotations }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 8 }}
+        {{- end }}
+      {{- end }}
+    spec:
+      restartPolicy: Never
+      {{- if $.Values.securityadmin.priorityClassName }}
+      priorityClassName: {{ $.Values.securityadmin.priorityClassName | quote }}
+      {{- end }}
+      {{- if .Values.securityadmin.schedulerName }}
+      schedulerName: {{ .Values.securityadmin.schedulerName }}
+      {{- end }}
+      {{- if $.Values.securityadmin.affinity }}
+      affinity: {{- include "common.tplvalues.render" (dict "value" $.Values.securityadmin.affinity "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if $.Values.securityadmin.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" (dict "value" $.Values.securityadmin.nodeSelector "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if $.Values.securityadmin.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" (dict "value" $.Values.securityadmin.tolerations "context" $) | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ template "common.names.fullname" . }}-securityadmin
+      {{- if or .Values.securityadmin.podSecurityContext.enabled .Values.securityadmin.securityContext.enabled }}
+      securityContext:
+        {{- if .Values.securityadmin.podSecurityContext.enabled }}
+        {{- omit .Values.securityadmin.podSecurityContext "enabled" | toYaml | nindent 8 }}
+        {{- else }}
+        fsGroup: {{ .Values.securityadmin.securityContext.fsGroup }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: securityadmin
+          image: {{ include "opensearch.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          {{- if .Values.diagnosticMode.enabled }}
+          command: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.command "context" $) | nindent 12 }}
+          args: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.args "context" $) | nindent 12 }}
+          {{- else }}
+          command: [ "/tmp/generate-internal-users.sh" ]
+          {{- end }}
+          resources: {{- toYaml $.Values.securityadmin.resources | nindent 12 }}
+          env:
+            - name: OPENSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "common.names.fullname" . }}
+                  key: opensearch-password
+            - name: DASHBOARD_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "common.names.fullname" . }}
+                  key: dashboards-password
+            - name: MONITORING_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "common.names.fullname" . }}
+                  key: monitoring-password
+          volumeMounts:
+            - name: securityconfig
+              mountPath: {{ .Values.securityadmin.securityConfig.path }}
+            - name: scripts
+              mountPath: /tmp/generate-internal-users.sh
+              subPath: generate-internal-users.sh
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/tls.key
+              subPath: tls.key
+              readOnly: true
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/tls.crt
+              subPath: tls.crt
+              readOnly: true
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/ca.crt
+              subPath: ca.crt
+              readOnly: true
+          {{- if $.Values.securityadmin.extraVolumeMounts }}
+          {{- toYaml $.Values.securityadmin.extraVolumeMounts | nindent 12 }}
+          {{- end }}
+        {{- if .Values.securityadmin.securityConfig.allowlist }}
+        - name: allowlist
+          image: {{ include "opensearch.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          {{- if .Values.diagnosticMode.enabled }}
+          command: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.command "context" $) | nindent 12 }}
+          args: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.args "context" $) | nindent 12 }}
+          {{- else }}
+          command: [ "/usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh" ]
+          args: 
+            #- "-cd"
+            - "-f"
+            - "{{ .Values.securityadmin.securityConfig.path }}/allowlist.yml"
+            - "-icl"
+            - "-nhnv"
+            - "-cacert"
+            - "/usr/share/opensearch/config/ca.crt"
+            - "-cert"
+            - "/usr/share/opensearch/config/tls.crt"
+            - "-key"
+            - "/usr/share/opensearch/config/tls.key"
+            - "-h"
+            - "{{ printf "%s-hl.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+          {{- end }}
+          resources: {{- toYaml $.Values.securityadmin.resources | nindent 12 }}
+          volumeMounts:
+            - name: securityconfig
+              mountPath: {{ .Values.securityadmin.securityConfig.path }}
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/tls.key
+              subPath: tls.key
+              readOnly: true
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/tls.crt
+              subPath: tls.crt
+              readOnly: true
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/ca.crt
+              subPath: ca.crt
+              readOnly: true
+          {{- if $.Values.securityadmin.extraVolumeMounts }}
+          {{- toYaml $.Values.securityadmin.extraVolumeMounts | nindent 12 }}
+          {{- end }}
+        {{- end }}
+        - name: roles-mapping
+          image: {{ include "opensearch.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          {{- if .Values.diagnosticMode.enabled }}
+          command: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.command "context" $) | nindent 12 }}
+          args: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.args "context" $) | nindent 12 }}
+          {{- else }}
+          command: [ "/usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh" ]
+          args: 
+            #- "-cd"
+            - "-f"
+            - "{{ .Values.securityadmin.securityConfig.path }}/roles_mapping.yml"
+            - "-icl"
+            - "-nhnv"
+            - "-cacert"
+            - "/usr/share/opensearch/config/ca.crt"
+            - "-cert"
+            - "/usr/share/opensearch/config/tls.crt"
+            - "-key"
+            - "/usr/share/opensearch/config/tls.key"
+            - "-h"
+            - "{{ printf "%s-hl.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+          {{- end }}
+          resources: {{- toYaml $.Values.securityadmin.resources | nindent 12 }}
+          volumeMounts:
+            - name: securityconfig
+              mountPath: {{ .Values.securityadmin.securityConfig.path }}
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/tls.key
+              subPath: tls.key
+              readOnly: true
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/tls.crt
+              subPath: tls.crt
+              readOnly: true
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/ca.crt
+              subPath: ca.crt
+              readOnly: true
+          {{- if $.Values.securityadmin.extraVolumeMounts }}
+          {{- toYaml $.Values.securityadmin.extraVolumeMounts | nindent 12 }}
+          {{- end }}
+        - name: roles
+          image: {{ include "opensearch.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          {{- if .Values.diagnosticMode.enabled }}
+          command: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.command "context" $) | nindent 12 }}
+          args: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.args "context" $) | nindent 12 }}
+          {{- else }}
+          command: [ "/usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh" ]
+          args: 
+            #- "-cd"
+            - "-f"
+            - "{{ .Values.securityadmin.securityConfig.path }}/roles.yml"
+            - "-icl"
+            - "-nhnv"
+            - "-cacert"
+            - "/usr/share/opensearch/config/ca.crt"
+            - "-cert"
+            - "/usr/share/opensearch/config/tls.crt"
+            - "-key"
+            - "/usr/share/opensearch/config/tls.key"
+            - "-h"
+            - "{{ printf "%s-hl.%s.svc.%s" $serviceName $releaseNamespace $clusterDomain }}"
+          {{- end }}
+          resources: {{- toYaml $.Values.securityadmin.resources | nindent 12 }}
+          volumeMounts:
+            - name: securityconfig
+              mountPath: {{ .Values.securityadmin.securityConfig.path }}
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/tls.key
+              subPath: tls.key
+              readOnly: true
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/tls.crt
+              subPath: tls.crt
+              readOnly: true
+            - name: opensearch-admin-certificates
+              mountPath: /usr/share/opensearch/config/ca.crt
+              subPath: ca.crt
+              readOnly: true
+          {{- if $.Values.securityadmin.extraVolumeMounts }}
+          {{- toYaml $.Values.securityadmin.extraVolumeMounts | nindent 12 }}
+          {{- end }}
+
+        {{- if .Values.securityadmin.sidecars }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.securityadmin.sidecars "context" $) | nindent 8 }}
+        {{- end }}
+      volumes:
+        - name: securityconfig
+          configMap:
+            name: {{ include "common.names.fullname" . }}-securityconfig
+        - name: scripts
+          configMap:
+            name: {{ include "common.names.fullname" . }}-scripts
+            defaultMode: 493
+        - name: opensearch-admin-certificates
+          secret:
+            secretName: {{ include "common.names.fullname" . }}-admin-http-crt
+            defaultMode: 420
+        {{- if $.Values.securityadmin.extraVolumes }}
+        {{- toYaml $.Values.securityadmin.extraVolumes | nindent 8 }}
+        {{- end }}
+
+{{- end }}

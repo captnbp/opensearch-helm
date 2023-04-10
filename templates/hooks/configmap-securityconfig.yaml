@@ -1,0 +1,252 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.names.fullname" . }}-securityconfig
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if $.Values.podAnnotations }}
+  annotations: {{- toYaml $.Values.podAnnotations | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+  {{- end }}
+data:
+  internal_users.yml: |-
+    ---
+    # This is the internal user database
+    # The hash value is a bcrypt hash and can be generated with plugin/tools/hash.sh
+
+    _meta:
+      type: "internalusers"
+      config_version: 2
+
+    admin:
+      hash: "OPENSEARCH_PASSWORD_HASH"
+      reserved: true
+      backend_roles:
+        - "admin"
+      description: "Admin user"
+
+    dashboards:
+      hash: "DASHBOARDS_PASSWORD_HASH"
+      reserved: false
+      backend_roles:
+        - "kibana_server"
+        - "dashboards_server"
+      description: "User for the OpenSearch Dashboards server"
+
+    monitoring:
+      hash: "MONITORING_PASSWORD_HASH"
+      reserved: true
+      backend_roles:
+        - "monitoring"
+      description: "Monitoring user"
+      
+  {{- if .Values.securityadmin.securityConfig.internal_users }}
+    {{- toYaml .Values.securityadmin.securityConfig.internal_users | nindent 4 }}
+  {{- end }}
+
+  {{- if .Values.securityadmin.securityConfig.allowlist }}
+  allowlist.yml: |-
+    ---
+    _meta:
+      type: "allowlist"
+      config_version: 2
+
+    # Description:
+    # enabled - feature flag.
+    # if enabled is false, all endpoints are accessible.
+    # if enabled is true, all users except the SuperAdmin can only submit the allowed requests to the specified endpoints.
+    # SuperAdmin can access all APIs.
+    # SuperAdmin is defined by the SuperAdmin certificate, which is configured with the opensearch.yml setting plugins.security.authcz.admin_dn:
+    # Refer to the example setting in opensearch.yml to learn more about configuring SuperAdmin.
+    #
+    # requests - map of allow listed endpoints and HTTP requests
+
+    #this name must be config
+    config:
+      enabled: false
+      requests:
+        /_cluster/settings:
+          - GET
+        /_cluster/health:
+          - GET
+        /_cat/health:
+          - GET
+        /_cat/nodes:
+          - GET
+        /_cat/indices:
+          - GET
+      
+    {{- toYaml .Values.securityadmin.securityConfig.allowlist | nindent 4 }}
+  {{- end }}
+
+  {{- if .Values.securityadmin.securityConfig.config }}
+  config.yml: |-
+    ---
+    _meta:
+      type: "config"
+      config_version: 2
+    config: 
+    {{- toYaml .Values.securityadmin.securityConfig.config | nindent 6 }}
+  {{- end }}
+
+  roles.yml: |-
+    ---
+    _meta:
+      type: "roles"
+      config_version: 2
+
+    monitoring:
+      reserved: false
+      hidden: false
+      cluster_permissions:
+        - "cluster_monitor"
+        - "cluster:monitor/nodes/info"
+      index_permissions:
+        - index_patterns:
+            - '*'
+          allowed_actions:
+            - 'indices_monitor'
+            - 'indices:admin/aliases/get'
+            - 'indices:admin/mappings/get'
+
+    dashboards_server:
+      reserved: true
+      hidden: false
+      static: true
+      description: "Provide the minimum permissions for the Kibana server"
+      cluster_permissions:
+      - "cluster_monitor"
+      - "cluster_composite_ops"
+      - "manage_point_in_time"
+      - "indices:admin/template*"
+      - "indices:data/read/scroll*"
+      index_permissions:
+      - index_patterns:
+        - ".kibana"
+        - ".opensearch_dashboards"
+        allowed_actions:
+        - "indices_all"
+      - index_patterns:
+        - ".kibana-6"
+        - ".opensearch_dashboards-6"
+        allowed_actions:
+        - "indices_all"
+      - index_patterns:
+        - ".kibana_*"
+        - ".opensearch_dashboards_*"
+        allowed_actions:
+        - "indices_all"
+      - index_patterns:
+        - ".tasks"
+        allowed_actions:
+        - "indices_all"
+      - index_patterns:
+        - ".management-beats*"
+        allowed_actions:
+        - "indices_all"
+      - index_patterns:
+        - "*"
+        allowed_actions:
+        - "indices:admin/aliases*"
+
+  {{- if .Values.securityadmin.securityConfig.roles }}
+    {{- toYaml .Values.securityadmin.securityConfig.roles | nindent 4 }}
+  {{- end }}
+
+
+  roles_mapping.yml: |-
+    ---
+    _meta:
+      type: "rolesmapping"
+      config_version: 2
+
+    opensearch_superadmin:
+      reserved: true
+      hidden: false
+      backend_roles:
+        - "admin"
+      hosts: []
+      users: []
+      and_backend_roles: []
+      description: "Maps admin to all_access"
+
+    all_access:
+      reserved: true
+      hidden: false
+      backend_roles:
+        - "admin"
+      hosts: []
+      users: []
+      and_backend_roles: []
+      description: "Maps admin to all_access"
+
+    monitoring:
+      reserved: true
+      hidden: false
+      backend_roles:
+        - "monitoring"
+      hosts: []
+      users:
+        - "monitoring"
+      and_backend_roles: []
+      description: "Maps admin to monitoring"
+
+    kibana_server:
+      reserved: false
+      hidden: false
+      hosts: []
+      users:
+        - "dashboards"
+      and_backend_roles: []
+      description: "Maps dashboard user to kibana_server role"
+
+    dashboards_server:
+      reserved: false
+      hidden: false
+      hosts: []
+      users:
+        - "dashboards"
+      and_backend_roles: []
+      description: "Maps dashboard user to dashboards_server role"
+
+  {{- if .Values.securityadmin.securityConfig.roles_mapping }}
+    {{- toYaml .Values.securityadmin.securityConfig.roles_mapping | nindent 4 }}
+  {{- end }}
+
+
+  {{- if .Values.securityadmin.securityConfig.action_groups }}
+  action_groups.yml: |-
+    ---
+    _meta:
+      type: "action_groups"
+      config_version: 2
+    {{- .Values.securityadmin.securityConfig.action_groups | nindent 4 }}
+  {{- end }}
+
+  tenants.yml: |-
+    ---
+    _meta:
+      type: "tenants"
+      config_version: 2
+    admin_tenant:
+      reserved: false
+      description: "Admin tenant"
+
+  {{- if .Values.securityadmin.securityConfig.tenants }}
+    {{- toYaml .Values.securityadmin.securityConfig.tenants | nindent 4 }}
+  {{- end }}
+
+
+  {{- if .Values.securityadmin.securityConfig.nodes_dn }}
+  nodes_dn.yml: |-
+    ---
+    _meta:
+      type: "nodes_dn"
+      config_version: 2
+    {{- .Values.securityadmin.securityConfig.nodes_dn | nindent 4 }}
+  {{- end }}

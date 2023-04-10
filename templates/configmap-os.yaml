@@ -1,0 +1,127 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.names.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+data:
+  opensearch.yml: |
+    cluster.name: "{{ .Values.clusterName }}"
+
+    {{- if .Values.allocationAwareness.enabled }}
+    cluster.routing.allocation.awareness.attributes: "zone"
+    {{- if .Values.allocationAwareness.forceZones.enabled }}
+    cluster.routing.allocation.awareness.force.zone.values:
+    {{- toYaml .Values.allocationAwareness.forceZones.zones | nindent 6 }}
+    {{- end }}
+    {{- end }}
+
+    # Bind to all interfaces because we don't know what IP address Docker will assign to us.
+    network.host: {{ .Values.networkHost }}
+
+    # # minimum_master_nodes need to be explicitly set when bound on a public IP
+    # # set to 1 to allow single node clusters
+    # discovery.zen.minimum_master_nodes: 1
+
+    # Setting network.host to a non-loopback address enables the annoying bootstrap checks. "Single-node" mode disables them again.
+    # discovery.type: single-node
+
+    # Start OpenSearch Security Demo Configuration
+    plugins:
+      security:
+        ssl:
+          transport:
+            pemcert_filepath: transport-tls.crt
+            pemkey_filepath: transport-tls.key
+            pemtrustedcas_filepath: transport-ca.crt
+            enforce_hostname_verification: {{ .Values.security.tls.transport.enforceHostnameVerification }}
+            {{- if .Values.security.tls.transport.enforceHostnameVerification }}
+            resolve_hostname: {{ .Values.security.tls.transport.resolveHostname }}
+            {{- end }}
+          http:
+            enabled: true
+            pemcert_filepath: http-tls.crt
+            pemkey_filepath: http-tls.key
+            pemtrustedcas_filepath: http-ca.crt
+        allow_unsafe_democertificates: false
+        allow_default_init_securityindex: true
+        authcz:
+          admin_dn:
+            - CN=admin,OU={{ .Values.clusterName }}Users,O={{ .Values.security.tls.http.subject.organizations }},C={{ .Values.security.tls.http.subject.countries }}
+            - CN=admin,OU={{ .Values.clusterName }}Users,O={{ .Values.security.tls.transport.subject.organizations }},C={{ .Values.security.tls.transport.subject.countries }}
+        nodes_dn:
+          - 'CN=*,OU={{ .Values.clusterName }},O={{ .Values.security.tls.transport.subject.organizations }},C={{ .Values.security.tls.transport.subject.countries }}'
+        {{- if .Values.security.audit.type }}
+        audit:
+          type: {{ .Values.security.audit.type }}
+          {{- if .Values.security.audit.ignore_users }}
+          ignore_users:
+          {{- toYaml .Values.security.audit.ignore_users | nindent 12 }}
+          {{- end }}
+          #enable_rest: {{ .Values.security.audit.enable_rest }}
+          #enable_transport: {{ .Values.security.audit.enable_transport }}
+          #resolve_indices: {{ .Values.security.audit.resolve_indices }}
+          {{- if .Values.security.audit.ignore_requests }}
+          ignore_requests:
+          {{- toYaml .Values.security.audit.ignore_requests | nindent 12 }}
+          {{- end }}
+          config:
+            {{- if or (eq .Values.security.audit.type "internal_opensearch") (eq .Values.security.audit.type "external_opensearch") }}
+            index: {{ .Values.security.audit.index | quote }}
+            {{- end }}
+          {{- if .Values.security.audit.config }}
+          {{- toYaml .Values.security.audit.config | nindent 12 }}
+          {{- end }}
+        {{- end }}
+        enable_snapshot_restore_privilege: true
+        check_snapshot_restore_write_privileges: true
+        restapi:
+          roles_enabled: ["all_access", "security_rest_api_access"]
+        system_indices:
+          enabled: true
+          indices:
+            [
+              ".opendistro-alerting-config",
+              ".opendistro-alerting-alert*",
+              ".opendistro-anomaly-results*",
+              ".opendistro-anomaly-detector*",
+              ".opendistro-anomaly-checkpoints",
+              ".opendistro-anomaly-detection-state",
+              ".opendistro-reports-*",
+              ".opendistro-notifications-*",
+              ".opendistro-notebooks",
+              ".opendistro-asynchronous-search-response*",
+
+              ".opensearch-alerting-config",
+              ".opensearch-alerting-alert*",
+              ".opensearch-anomaly-results*",
+              ".opensearch-anomaly-detector*",
+              ".opensearch-anomaly-checkpoints",
+              ".opensearch-anomaly-detection-state",
+              ".opensearch-reports-*",
+              ".opensearch-notifications-*",
+              ".opensearch-notebooks",
+              ".opensearch-asynchronous-search-response*"
+            ]
+    {{- if .Values.s3Snapshots.enabled }}
+    s3.client.default.endpoint: {{ .Values.s3Snapshots.config.s3.client.default.endpoint | quote }}
+    s3.client.default.max_retries: {{ .Values.s3Snapshots.config.s3.client.default.max_retries | quote }}
+    s3.client.default.path_style_access: {{ .Values.s3Snapshots.config.s3.client.default.path_style_access | quote }}
+    s3.client.default.protocol: {{ .Values.s3Snapshots.config.s3.client.default.protocol | quote }}
+    s3.client.default.read_timeout: {{ .Values.s3Snapshots.config.s3.client.default.read_timeout | quote }}
+    s3.client.default.use_throttle_retries: {{ .Values.s3Snapshots.config.s3.client.default.use_throttle_retries | quote }}
+    {{- end }}
+
+  {{- if .Values.config }}
+  {{- toYaml .Values.config | nindent 2 }}
+  {{- end }}
+  {{- if .Values.extraConfig }}
+  my_opensearch.yml: |-
+    {{- toYaml .Values.extraConfig | nindent 4 }}
+  {{- end }}

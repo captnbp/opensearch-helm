@@ -1,0 +1,423 @@
+apiVersion: {{ template "common.capabilities.statefulset.apiVersion" . }}
+kind: StatefulSet
+metadata:
+  name: {{ include "opensearch.data.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+    app.kubernetes.io/component: data
+    ## Istio Labels: https://istio.io/docs/ops/deployment/requirements/
+    app: data
+spec:
+  updateStrategy:
+    type: {{ .Values.data.updateStrategy.type }}
+    {{- if (eq "OnDelete" .Values.data.updateStrategy.type) }}
+    rollingUpdate: null
+    {{- else if .Values.data.updateStrategy.rollingUpdatePartition }}
+    rollingUpdate:
+      partition: {{ .Values.data.updateStrategy.rollingUpdatePartition }}
+    {{- end }}
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" . | nindent 6 }}
+      app.kubernetes.io/component: data
+  podManagementPolicy: Parallel
+  {{- if not .Values.data.autoscaling.enabled }}
+  replicas: {{ .Values.data.replicaCount }}
+  {{- end }}
+  serviceName: {{ template "opensearch.data.fullname" . }}-hl
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" . | nindent 8 }}
+        app.kubernetes.io/component: data
+        ## Istio Labels: https://istio.io/docs/ops/deployment/requirements/
+        app: data
+        {{- if .Values.data.podLabels }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.data.podLabels "context" $) | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- if and (include "opensearch.transport.createTlsSecret" .) (not .Values.security.tls.transport.data.existingSecret) }}
+        checksum/tls-transport-certificates: {{ include (print $.Template.BasePath "/transport-certificates.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if and (include "opensearch.http.createTlsSecret" .) (not .Values.security.tls.http.data.existingSecret) }}
+        checksum/tls-http-certificates: {{ include (print $.Template.BasePath "/http-certificates.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if .Values.security.tls.truststore.extraCACerts }}
+        checksum/tls-configmap-ca-certs: {{ include (print $.Template.BasePath "/configmap-ca-certs.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if .Values.extraSecretsKeystore.secrets }}
+        checksum/tls-extraSecretsKeystore: {{ include (print $.Template.BasePath "/keystore-secrets.yaml") . | sha256sum }}
+        {{- end }}
+        checksum/tls-configmap-lib-scripts: {{ include (print $.Template.BasePath "/configmap-lib-scripts.yaml") . | sha256sum }}
+        checksum/tls-configmap-os: {{ include (print $.Template.BasePath "/configmap-os.yaml") . | sha256sum }}
+        checksum/tls-configmap-scripts: {{ include (print $.Template.BasePath "/configmap-scripts.yaml") . | sha256sum }}
+        {{- if .Values.data.podAnnotations }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.data.podAnnotations "context" $) | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.allocationAwareness.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: {{ .Values.allocationAwareness.topologyKey }}
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: data
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: data
+      {{- end }}
+      {{- include "opensearch.imagePullSecrets" . | nindent 6 }}
+      {{- if .Values.data.priorityClassName }}
+      priorityClassName: {{ .Values.data.priorityClassName | quote }}
+      {{- end }}
+      {{- if .Values.data.affinity }}
+      affinity: {{- include "common.tplvalues.render" (dict "value" .Values.data.affinity "context" $) | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAffinity: {{- include "common.affinities.pods" (dict "type" .Values.data.podAffinityPreset "component" "data" "context" $) | nindent 10 }}
+        podAntiAffinity: {{- include "common.affinities.pods" (dict "type" .Values.data.podAntiAffinityPreset "component" "data" "context" $) | nindent 10 }}
+        nodeAffinity: {{- include "common.affinities.nodes" (dict "type" .Values.data.nodeAffinityPreset.type "key" .Values.data.nodeAffinityPreset.key "values" .Values.data.nodeAffinityPreset.values) | nindent 10 }}
+      {{- end }}
+      {{- if .Values.data.hostAliases }}
+      hostAliases: {{- include "common.tplvalues.render" (dict "value" .Values.data.hostAliases "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.data.schedulerName }}
+      schedulerName: {{ .Values.data.schedulerName }}
+      {{- end }}
+      {{- if .Values.data.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" (dict "value" .Values.data.nodeSelector "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.data.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.data.tolerations "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.data.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- include "common.tplvalues.render" (dict "value" .Values.data.topologySpreadConstraints "context" $) | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ template "opensearch.data.serviceAccountName" . }}
+      {{- if or .Values.data.podSecurityContext.enabled .Values.data.securityContext.enabled }}
+      securityContext:
+        {{- if .Values.data.podSecurityContext.enabled }}
+        {{- omit .Values.data.podSecurityContext "enabled" | toYaml | nindent 8 }}
+        {{- else }}
+        fsGroup: {{ .Values.data.securityContext.fsGroup }}
+        {{- end }}
+      {{- end }}
+      {{- if or .Values.data.initContainers .Values.sysctlImage.enabled (and .Values.volumePermissions.enabled .Values.data.persistence.enabled) }}
+      initContainers:
+        {{- if .Values.sysctlImage.enabled }}
+        ## Image that performs the sysctl operation to modify Kernel settings (needed sometimes to avoid boot errors)
+        - name: sysctl
+          image: {{ include "opensearch.sysctl.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              {{- include "opensearch.sysctlIfLess" (dict "key" "vm.max_map_count" "value" "262144") | nindent 14 }}
+              {{- include "opensearch.sysctlIfLess" (dict "key" "fs.file-max" "value" "65536") | nindent 14 }}
+          securityContext:
+            privileged: true
+          {{- if .Values.sysctlImage.resources }}
+          resources: {{- toYaml .Values.sysctlImage.resources | nindent 12 }}
+          {{- end }}
+        {{- end }}
+        {{- if and .Values.volumePermissions.enabled .Values.data.persistence.enabled }}
+        - name: volume-permissions
+          image: {{ include "opensearch.volumePermissions.image" . }}
+          imagePullPolicy: {{ .Values.volumePermissions.image.pullPolicy | quote }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              chown -R {{ .Values.data.securityContext.runAsUser }}:{{ .Values.data.securityContext.fsGroup }} /usr/share/opensearch/data
+          securityContext:
+            runAsUser: 0
+          {{- if .Values.volumePermissions.resources }}
+          resources: {{- toYaml .Values.volumePermissions.resources | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: "/usr/share/opensearch/data"
+        {{- end }}
+        {{- if .Values.data.initContainers }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.data.initContainers "context" $) | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: opensearch
+          image: {{ include "opensearch.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          {{- if or .Values.data.containerSecurityContext.enabled .Values.data.securityContext.enabled }}
+          securityContext:
+            {{- if .Values.data.containerSecurityContext.enabled }}
+            {{- omit .Values.data.containerSecurityContext "enabled" | toYaml | nindent 12 }}
+            {{- else }}
+            runAsUser: {{ .Values.data.securityContext.runAsUser }}
+            {{- end }}
+          {{- end }}
+          {{- if .Values.diagnosticMode.enabled }}
+          command: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.command "context" $) | nindent 12 }}
+          args: {{- include "common.tplvalues.render" (dict "value" .Values.diagnosticMode.args "context" $) | nindent 12 }}
+          {{- else }}
+          command:
+            - "/opt/opensearch/scripts/opensearch-docker-entrypoint.sh"
+          {{- end }}
+          env:
+            - name: IMAGE_DEBUG
+              value: {{ ternary "true" "false" (or .Values.image.debug .Values.diagnosticMode.enabled) | quote }}
+            - name: WORKER_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: node.name
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- if .Values.plugins }}
+            - name: OPENSEARCH_PLUGINS
+              value: {{ .Values.plugins | quote }}
+            {{- end }}
+            {{- if .Values.allocationAwareness.enabled }}
+            - name: OPENSEARCH_ALLOCATION_AWARENESS
+              value: "true"
+            - name: OPENSEARCH_TOPOLOGY_KEY
+              value: {{ .Values.allocationAwareness.topologyKey | quote }}
+            {{- end }}
+            - name: discovery.seed_hosts
+              {{- $releaseNamespace := .Release.Namespace }}
+              {{- $clusterDomain := .Values.clusterDomain }}
+              {{- $opensearchClusterManagerFullname := include "opensearch.cluster_manager.fullname" . }}
+              {{- $replicas := int (ternary .Values.cluster_manager.autoscaling.minReplicas .Values.cluster_manager.replicaCount .Values.cluster_manager.autoscaling.enabled) }}
+              value: {{ range $i, $e := until $replicas }}{{ $opensearchClusterManagerFullname }}-{{ $e }}.{{ $opensearchClusterManagerFullname }}-hl.{{ $releaseNamespace }}.svc.{{ $clusterDomain }},{{ end }}
+            - name: cluster.name
+              value: "{{ .Values.clusterName }}"
+            - name: OPENSEARCH_JAVA_OPTS
+              value: "{{ .Values.opensearchJavaOpts }}"
+            {{- if .Values.security.tls.truststore.extraCACerts }}
+            - name: OPENSEARCH_CACERTS_PATH
+              value: "/tmp/cacerts"
+            {{- end }}
+            - name: node.roles
+              value: "data"
+            - name: DISABLE_INSTALL_DEMO_CONFIG
+              value: "true"
+            - name: READINESS_PROBE_PROTOCOL
+              value: https
+            - name: MONITORING_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "common.names.fullname" . }}
+                  key: monitoring-password
+            {{- if .Values.s3Snapshots.enabled }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "opensearch.s3Snapshots.secretName" . }}
+                  key: {{ .Values.s3Snapshots.config.s3.client.default.existingSecretAccessKey | quote }}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "opensearch.s3Snapshots.secretName" . }}
+                  key: {{ .Values.s3Snapshots.config.s3.client.default.existingSecretSecretKey | quote }}
+            {{- end }}
+            {{- if .Values.extraEnvVars }}
+            {{- include "common.tplvalues.render" ( dict "value" .Values.extraEnvVars "context" $ ) | nindent 12 }}
+            {{- end }}
+          {{- if or .Values.extraEnvVarsConfigMap .Values.extraEnvVarsSecret }}
+          envFrom:
+            {{- if .Values.extraEnvVarsConfigMap }}
+            - configMapRef:
+                name: {{ include "common.tplvalues.render" ( dict "value" .Values.extraEnvVarsConfigMap "context" $ ) }}
+            {{- end }}
+            {{- if .Values.extraEnvVarsSecret }}
+            - secretRef:
+                name: {{ include "common.tplvalues.render" ( dict "value" .Values.extraEnvVarsSecret "context" $ ) }}
+            {{- end }}
+          {{- end }}
+          ports:
+            - name: rest-api
+              containerPort: {{ .Values.containerPorts.restAPI }}
+            - name: transport
+              containerPort: {{ .Values.containerPorts.transport }}
+          {{- if not .Values.diagnosticMode.enabled }}
+          {{- if .Values.data.startupProbe.enabled }}
+          startupProbe:
+            initialDelaySeconds: {{ .Values.data.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.data.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.data.startupProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.data.startupProbe.successThreshold }}
+            failureThreshold: {{ .Values.data.startupProbe.failureThreshold }}
+            exec:
+              command:
+                - /opt/opensearch/scripts/readiness-probe-script.sh
+          {{- else if .Values.data.customStartupProbe }}
+          startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.data.customStartupProbe "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if .Values.data.livenessProbe.enabled }}
+          livenessProbe:
+            initialDelaySeconds: {{ .Values.data.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.data.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.data.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.data.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.data.livenessProbe.failureThreshold }}
+            exec:
+              command:
+                - /opt/opensearch/scripts/readiness-probe-script.sh
+          {{- else if .Values.data.customLivenessProbe }}
+          livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.data.customLivenessProbe "context" $) | nindent 12 }}
+          {{- end }}
+          {{- if .Values.data.readinessProbe.enabled }}
+          readinessProbe:
+            initialDelaySeconds: {{ .Values.data.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.data.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.data.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.data.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.data.readinessProbe.failureThreshold }}
+            exec:
+              command:
+                - /opt/opensearch/scripts/readiness-probe-script.sh
+          {{- else if .Values.data.customReadinessProbe }}
+          readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.data.customReadinessProbe "context" $) | nindent 12 }}
+          {{- end }}
+          {{- end }}
+          {{- if .Values.data.resources }}
+          resources: {{- toYaml .Values.data.resources | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - mountPath: /usr/share/opensearch/config/opensearch.yml
+              name: "config"
+              subPath: opensearch.yml
+            {{- if .Values.securityadmin.securityConfig.config }}
+            - mountPath: /usr/share/opensearch/config/opensearch-security/config.yml
+              name: securityconfig
+              subPath: config.yml
+            {{- end }}
+            {{- if .Values.extraConfig }}
+            - mountPath: /usr/share/opensearch/config/my_opensearch.yml
+              name: config
+              subPath: my_opensearch.yml
+            {{- end }}
+            - name: "data"
+              mountPath: "/usr/share/opensearch/data"
+            - name: opensearch-http-certificates
+              mountPath: /usr/share/opensearch/config/http-tls.key
+              subPath: tls.key
+              readOnly: true
+            - name: opensearch-http-certificates
+              mountPath: /usr/share/opensearch/config/http-tls.crt
+              subPath: tls.crt
+              readOnly: true
+            - name: opensearch-http-certificates
+              mountPath: /usr/share/opensearch/config/http-ca.crt
+              subPath: ca.crt
+              readOnly: true
+            - name: opensearch-transport-certificates
+              mountPath: /usr/share/opensearch/config/transport-tls.key
+              subPath: tls.key
+              readOnly: true
+            - name: opensearch-transport-certificates
+              mountPath: /usr/share/opensearch/config/transport-tls.crt
+              subPath: tls.crt
+              readOnly: true
+            - name: opensearch-transport-certificates
+              mountPath: /usr/share/opensearch/config/transport-ca.crt
+              subPath: ca.crt
+              readOnly: true
+            {{- if .Values.security.tls.truststore.extraCACerts }}
+            - name: ca-certificates
+              mountPath: /tmp/cacerts
+              readOnly: true
+            {{- end }}
+            - name: scripts
+              mountPath: /opt/opensearch/scripts/
+              readOnly: true
+            - name: lib-scripts
+              mountPath: /opt/scripts/
+              readOnly: true
+            {{- if or .Values.extraSecretsKeystore.existingSecret .Values.extraSecretsKeystore.secrets }}
+            - name: keystore-secrets
+              mountPath: /tmp/keystore-secrets
+              readOnly: true
+            {{- end }}
+            {{- if .Values.extraVolumeMounts }}
+            {{- toYaml .Values.extraVolumeMounts | nindent 12 }}
+            {{- end }}
+        {{- if .Values.data.sidecars }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.data.sidecars "context" $) | nindent 8 }}
+        {{- end }}
+      volumes:
+        - name: "config"
+          configMap:
+            name: {{ template "common.names.fullname" . }}
+            defaultMode: 420
+        {{- if .Values.securityadmin.securityConfig.config }}
+        - name: securityconfig
+          configMap:
+            name: {{ include "common.names.fullname" . }}-securityconfig
+            defaultMode: 420
+        {{- end }}
+        - name: opensearch-transport-certificates
+          secret:
+            secretName: {{ include "opensearch.data.transport.tlsSecretName" . }}
+            defaultMode: 420
+        - name: opensearch-http-certificates
+          secret:
+            secretName: {{ include "opensearch.data.http.tlsSecretName" . }}
+            defaultMode: 420
+        {{- if .Values.security.tls.truststore.extraCACerts }}
+        - name: ca-certificates
+          configMap:
+            name: {{ include "common.names.fullname" . }}-ca-certs
+            defaultMode: 420
+        {{- end }}
+        - name: lib-scripts
+          configMap:
+            name: {{ include "common.names.fullname" . }}-lib-scripts
+            defaultMode: 493
+        - name: scripts
+          configMap:
+            name: {{ include "common.names.fullname" . }}-scripts
+            defaultMode: 493
+        {{- if or .Values.extraSecretsKeystore.existingSecret .Values.extraSecretsKeystore.secrets }}
+        - name: keystore-secrets
+          secret:
+            secretName: {{ include "opensearch.extraSecretsKeystore.secretName" . }}
+            defaultMode: 420
+        {{- end }}
+        {{- if .Values.extraVolumes }}
+        {{- toYaml .Values.extraVolumes | nindent 8 }}
+        {{- end }}
+{{- if not .Values.data.persistence.enabled }}
+        - name: "data"
+          emptyDir: {}
+{{- else if .Values.data.persistence.existingClaim }}
+        - name: "data"
+          persistentVolumeClaim:
+            claimName: {{ .Values.data.persistence.existingClaim }}
+{{- else }}
+  volumeClaimTemplates:
+    - metadata:
+        name: "data"
+        {{- if .Values.data.persistence.annotations }}
+        annotations: {{- toYaml .Values.data.persistence.annotations | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes: {{- toYaml .Values.data.persistence.accessModes | nindent 10 }}
+        {{ $storage := dict "global" .Values.global "local" .Values.data }}
+        {{ include "opensearch.storageClass" $storage }}
+        resources:
+          requests:
+            storage: {{ .Values.data.persistence.size | quote }}
+        {{- if .Values.data.persistence.selector }}
+        selector: {{- include "common.tplvalues.render" (dict "value" .Values.data.persistence.selector "context" $) | nindent 10 }}
+        {{- else if .Values.data.persistence.existingVolume }}
+        selector:
+          matchLabels:
+            volume: {{ .Values.data.persistence.existingVolume }}
+        {{- end }}
+{{- end }}
