@@ -2,22 +2,16 @@ annotations:
   category: Analytics
   artifacthub.io/images: |
     - name: opensearch
-      image: opensearchproject/opensearch:2.6.0
+      image: opensearchproject/opensearch:2.7.0
   artifacthub.io/license: MIT
   artifacthub.io/recommendations: |
     - url: https://artifacthub.io/packages/helm/captnbp/opensearch-dashboards
     - url: https://artifacthub.io/packages/helm/captnbp/opensearch-singlenode
   artifacthub.io/changes: |
     - kind: changed
-      description: Fix audit values
-    - kind: changed
-      description: Fix s3 secret mechanism
-    - kind: changed
-      description: Add extra K/V secrets in Opensearch keystore
-    - kind: changed
-      description: Use Opensearc prometheus plugin instead of Elk exporter
+      description: Update Opensearch to 2.7.0
 apiVersion: v2
-appVersion: 2.6.0
+appVersion: 2.7.0
 dependencies:
   - name: common
     repository: https://charts.bitnami.com/bitnami
@@ -43,4 +37,4 @@ sources:
   - https://lab.frogg.it/captnbp/opensearch-helm
   - https://github.com/opensearch-project
   - https://opensearch.org/
-version: 3.0.0
+version: 3.0.1
