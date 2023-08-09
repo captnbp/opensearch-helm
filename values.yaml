@@ -2033,6 +2033,8 @@ s3Snapshots:
           existingSecretSecretKey: "secret_key"
           ## @param s3Snapshots.config.s3.client.default.endpoint S3 endpoint
           endpoint: s3.amazonaws.com
+          ## @param s3Snapshots.config.s3.client.default.region S3 region
+          region: us-east-2
           ## @param s3Snapshots.config.s3.client.default.bucket S3 bucket
           bucket: opensearch
           ## @param s3Snapshots.config.s3.client.default.base_path S3 path in bucket

@@ -38,4 +38,4 @@ sources:
   - https://github.com/captnbp/opensearch-helm
   - https://github.com/opensearch-project
   - https://opensearch.org/
-version: 3.0.3
+version: 3.0.4
