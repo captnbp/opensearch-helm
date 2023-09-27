@@ -2,22 +2,24 @@ annotations:
   category: Analytics
   artifacthub.io/images: |
     - name: opensearch
-      image: opensearchproject/opensearch:2.9.0
+      image: docker.io/opensearchproject/opensearch:2.10.0
+    - name: os-shell
+      image: docker.io/bitnami/os-shell:11-debian-11-r77
   artifacthub.io/license: MIT
   artifacthub.io/recommendations: |
     - url: https://artifacthub.io/packages/helm/captnbp/opensearch-dashboards
     - url: https://artifacthub.io/packages/helm/captnbp/opensearch-singlenode
   artifacthub.io/changes: |
     - kind: changed
-      description: Update Opensearch to 2.9.0
+      description: Update Opensearch to 2.10.0
 apiVersion: v2
-appVersion: 2.9.0
+appVersion: 2.10.0
 dependencies:
   - name: common
     repository: https://charts.bitnami.com/bitnami
     tags:
       - bitnami-common
-    version: 1.x.x
+    version: 2.x.x
 description: OpenSearch is a distributed search and analytics engine. It is used for web search, log monitoring, and real-time analytics. Ideal for Big Data applications.
 home: https://lab.frogg.it/captnbp/opensearch-helm
 icon: https://opensearch.org/assets/brand/PNG/Mark/opensearch_mark_default.png
@@ -38,4 +40,4 @@ sources:
   - https://github.com/captnbp/opensearch-helm
   - https://github.com/opensearch-project
   - https://opensearch.org/
-version: 3.0.4
+version: 3.0.5
