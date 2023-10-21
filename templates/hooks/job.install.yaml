@@ -13,8 +13,6 @@ metadata:
     {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
     {{- end }}
     app.kubernetes.io/component: securityadmin
-    ## Istio Labels: https://istio.io/docs/ops/deployment/requirements/
-    app: securityadmin
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "1"
@@ -29,8 +27,6 @@ spec:
         {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 8 }}
         {{- end }}
         app.kubernetes.io/component: securityadmin
-        ## Istio Labels: https://istio.io/docs/ops/deployment/requirements/
-        app: securityadmin
       {{- if $.Values.podAnnotations }}
       annotations: {{- toYaml $.Values.podAnnotations | nindent 8 }}
         {{- if .Values.commonAnnotations }}

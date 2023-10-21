@@ -8,8 +8,6 @@ metadata:
     {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
     {{- end }}
     app.kubernetes.io/component: cluster_manager
-    ## Istio Labels: https://istio.io/docs/ops/deployment/requirements/
-    app: cluster_manager
 spec:
   updateStrategy:
     type: {{ .Values.cluster_manager.updateStrategy.type }}
@@ -28,8 +26,6 @@ spec:
     metadata:
       labels: {{- include "common.labels.standard" . | nindent 8 }}
         app.kubernetes.io/component: cluster_manager
-        ## Istio Labels: https://istio.io/docs/ops/deployment/requirements/
-        app: cluster_manager
         {{- if .Values.cluster_manager.podLabels }}
         {{- include "common.tplvalues.render" (dict "value" .Values.cluster_manager.podLabels "context" $) | nindent 8 }}
         {{- end }}

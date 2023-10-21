@@ -8,8 +8,6 @@ metadata:
     {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
     {{- end }}
     app.kubernetes.io/component: coordinating
-    ## Istio Labels: https://istio.io/docs/ops/deployment/requirements/
-    app: coordinating
 spec:
   updateStrategy:
     type: {{ .Values.coordinating.updateStrategy.type }}
@@ -28,8 +26,6 @@ spec:
     metadata:
       labels: {{- include "common.labels.standard" . | nindent 8 }}
         app.kubernetes.io/component: coordinating
-        ## Istio Labels: https://istio.io/docs/ops/deployment/requirements/
-        app: coordinating
         {{- if .Values.coordinating.podLabels }}
         {{- include "common.tplvalues.render" (dict "value" .Values.coordinating.podLabels "context" $) | nindent 8 }}
         {{- end }}
