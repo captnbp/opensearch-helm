@@ -2,21 +2,21 @@ annotations:
   category: Analytics
   artifacthub.io/images: |
     - name: opensearch
-      image: docker.io/opensearchproject/opensearch:2.12.0
+      image: docker.io/opensearchproject/opensearch:2.13.0
     - name: os-shell
-      image: docker.io/bitnami/os-shell:11-debian-11-r90
+      image: docker.io/bitnami/os-shell:12-debian-12-r19
   artifacthub.io/license: MIT
   artifacthub.io/recommendations: |
     - url: https://artifacthub.io/packages/helm/captnbp/opensearch-dashboards
     - url: https://artifacthub.io/packages/helm/captnbp/opensearch-singlenode
   artifacthub.io/changes: |
     - kind: changed
-      description: Update Opensearch to 2.12.0
+      description: Update Opensearch to 2.13.0
 apiVersion: v2
-appVersion: 2.12.0
+appVersion: 2.13.0
 dependencies:
   - name: common
-    repository: https://charts.bitnami.com/bitnami
+    repository: oci://registry-1.docker.io/bitnamicharts
     tags:
       - bitnami-common
     version: 2.x.x
