@@ -74,17 +74,29 @@ spec:
             - name: OPENSEARCH_PASSWORD
               valueFrom:
                 secretKeyRef:
+                  {{- if not .Values.security.existingSecret }}
                   name: {{ template "common.names.fullname" . }}
+                  {{- else }}
+                  name: {{ .Values.security.existingSecret }}
+                  {{- end }}
                   key: opensearch-password
             - name: DASHBOARD_PASSWORD
               valueFrom:
                 secretKeyRef:
+                  {{- if not .Values.security.existingSecret }}
                   name: {{ template "common.names.fullname" . }}
+                  {{- else }}
+                  name: {{ .Values.security.existingSecret }}
+                  {{- end }}
                   key: dashboards-password
             - name: MONITORING_PASSWORD
               valueFrom:
                 secretKeyRef:
+                  {{- if not .Values.security.existingSecret }}
                   name: {{ template "common.names.fullname" . }}
+                  {{- else }}
+                  name: {{ .Values.security.existingSecret }}
+                  {{- end }}
                   key: monitoring-password
           volumeMounts:
             - name: securityconfig
