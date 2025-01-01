@@ -186,7 +186,11 @@ spec:
             - name: MONITORING_PASSWORD
               valueFrom:
                 secretKeyRef:
+                  {{- if not .Values.security.existingSecret }}
                   name: {{ template "common.names.fullname" . }}
+                  {{- else }}
+                  name: {{ .Values.security.existingSecret }}
+                  {{- end }}
                   key: monitoring-password
             {{- if .Values.s3Snapshots.enabled }}
             - name: AWS_ACCESS_KEY_ID
