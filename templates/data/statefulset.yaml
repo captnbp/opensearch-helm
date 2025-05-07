@@ -297,11 +297,6 @@ spec:
               name: securityconfig
               subPath: config.yml
             {{- end }}
-            {{- if .Values.extraConfig }}
-            - mountPath: /usr/share/opensearch/config/my_opensearch.yml
-              name: config
-              subPath: my_opensearch.yml
-            {{- end }}
             - name: "data"
               mountPath: "/usr/share/opensearch/data"
             - name: opensearch-http-certificates
