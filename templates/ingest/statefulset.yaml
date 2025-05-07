@@ -317,11 +317,6 @@ spec:
               mountPath: /tmp/keystore-secrets
               readOnly: true
             {{- end }}
-            {{- if .Values.extraConfig }}
-            - mountPath: /usr/share/opensearch/config/my_opensearch.yml
-              name: config
-              subPath: my_opensearch.yml
-            {{- end }}
             {{- if .Values.extraVolumeMounts }}
             {{- toYaml .Values.extraVolumeMounts | nindent 12 }}
             {{- end }}
