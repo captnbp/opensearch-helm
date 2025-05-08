@@ -11,11 +11,11 @@ annotations:
     - url: https://artifacthub.io/packages/helm/captnbp/opensearch-singlenode
   artifacthub.io/changes: |
     - kind: changed
-      description: Update Opensearch to 2.19.2
+      description: "Update Opensearch to 2.19.2"
     - kind: fix
-      description: fix: add security.existingSecret check in statefulset and jobs
+      description: "fix: add security.existingSecret check in statefulset and jobs"
     - kind: fix
-      description: fix: extraConfig parameter not Effective Due to my_opensearch.yml not Being Loaded
+      description: "fix: extraConfig parameter not Effective Due to my_opensearch.yml not Being Loaded"
 apiVersion: v2
 appVersion: 2.19.2
 dependencies:
@@ -25,8 +25,8 @@ dependencies:
       - bitnami-common
     version: 2.x.x
 description: OpenSearch is a distributed search and analytics engine. It is used for web search, log monitoring, and real-time analytics. Ideal for Big Data applications.
-home: https://lab.frogg.it/captnbp/opensearch-helm
-icon: https://opensearch.org/assets/brand/PNG/Mark/opensearch_mark_default.png
+home: https://github.com/captnbp/opensearch-helm
+icon: https://opensearch.org/wp-content/uploads/2025/01/opensearch_mark_default.svg
 keywords:
   - opensearch
   - dashboards
@@ -44,4 +44,4 @@ sources:
   - https://github.com/captnbp/opensearch-helm
   - https://github.com/opensearch-project
   - https://opensearch.org/
-version: 3.1.0
+version: 3.1.1
