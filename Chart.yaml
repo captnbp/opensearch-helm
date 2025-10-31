@@ -12,9 +12,9 @@ annotations:
   artifacthub.io/changes: |
     - kind: changed
       description: "Update Opensearch to 2.19.2"
-    - kind: fix
+    - kind: fixed
       description: "fix: add security.existingSecret check in statefulset and jobs"
-    - kind: fix
+    - kind: fixed
       description: "fix: extraConfig parameter not Effective Due to my_opensearch.yml not Being Loaded"
 apiVersion: v2
 appVersion: 2.19.2
