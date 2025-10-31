@@ -39,4 +39,4 @@ publish-minio:
 sign:
   extends: .template:helm:sign:dockerhub
   needs:
-    - publish
+    - publish-dockerhub
